@@ -73,9 +73,11 @@ crawler, employer qualification or reply intent classification. Live discovery
 has no connected worker yet. You can import your own reviewed leads.
 
 1. Obtain your own API key at https://console.typesafe.ai/keys.
-2. In your private `.env`, set `BROWSER_ADVISOR=jev` and
-   `TYPESAFE_API_KEY=` followed by your key.
-3. Keep `WORKBENCH_MODE=live` for real browser operations and run
+2. Under **Your connections → Jev**, paste your key and select **Connect Jev**.
+   The app checks access by listing models before saving it. No generation is run.
+   Alternatively, supply `TYPESAFE_API_KEY` in `.env`.
+3. To enable browser assistance, set `BROWSER_ADVISOR=jev` in `.env`.
+4. Keep `WORKBENCH_MODE=live` for real browser operations and run
    `docker compose --profile live up --build -d` to load your changes.
 
 The app calls `jev-latest` at the TypeSafe System One endpoint only when multiple
@@ -89,20 +91,43 @@ Jev returns a choice among observed controls; the browser rechecks those control
 before clicking. It cannot supply selectors/URLs or select Send. Unknown/invalid
 responses, API failures and HTTP 429 stop the operation without retry. Changing
 `BROWSER_ADVISOR` back to `none` disables Jev calls even if the key remains set.
-Demo mode never calls Jev. A configured key is not proof that its account access
+Demo research and outreach never call Jev; explicit connection checks do. A configured key is not proof that its account access
 works; this adapter is fixture-tested, not validated with a paid live account.
+
+## Codex
+
+Under **Your connections → Codex**, choose **Sign in with ChatGPT**. The app
+shows a one-time code and a link to OpenAI's official sign-in page. Open that
+page, sign in yourself and enter the code. The workbench updates automatically
+when sign-in completes. Device-code login may need enabling in your ChatGPT
+security settings or by your workspace administrator. You can cancel a pending
+login or disconnect a completed login from this panel.
+
+Alternatively, expand the API-key option and paste your own OpenAI API key.
+The app checks model-list access before saving it. **Check connection** refreshes
+ChatGPT authentication or checks API-key model-list access; it does not generate
+text or prove access to a specific paid model.
+
+The container includes pinned official Codex 0.167.0 and communicates with its
+app-server through private local pipes. Credentials are stored in `/data/codex`
+in the private app volume, separate from any host Codex account. Jev keys are
+stored in `/data/connections/jev.json` with owner-only permissions. These are
+sensitive credential files, not encrypted backups. Neither provider key is
+returned by the API, stored in browser localStorage, or added to the CRM.
+Disconnecting Jev also overrides any environment key; revoke keys at their
+provider to invalidate them everywhere. Codex disconnect removes this workspace's
+saved authentication. Keep the app volume to retain logins across restarts.
+
+See OpenAI's [authentication documentation](https://learn.chatgpt.com/docs/auth)
+and [app-server authentication interface](https://learn.chatgpt.com/docs/app-server).
 
 ## Discovery agent (planned)
 
-The public app does not yet launch a Codex or Jev discovery worker. There is no
-active discovery API key setting. A TypeSafe key currently enables only the
-Connect-control advisor described above, not autonomous lead research.
-
-The [discovery implementation plan](DISCOVERY.md) specifies a local research
-worker with its own Codex authentication and optional Jev key. Neither a browser
-login nor a generated app password authenticates Codex. That worker and its
-connection UI still need implementation; do not copy private agent sessions or
-credentials into this repository. Demo previews require no agent account.
+Both authentication panels are implemented. The public app still does not launch
+a Codex or Jev discovery worker. Connecting either account does not enable live
+research. The [discovery implementation plan](DISCOVERY.md) covers the remaining
+worker, browser tools, evidence staging and review flow. Demo previews require
+no provider account; explicit connection checks do contact the chosen provider.
 
 ## Google Sheets (optional)
 

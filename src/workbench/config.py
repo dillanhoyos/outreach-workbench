@@ -29,8 +29,6 @@ class Settings:
         if advisor not in ('none', 'jev'):
             raise ValueError('BROWSER_ADVISOR must be none or jev')
         key = os.getenv('TYPESAFE_API_KEY', '')
-        if mode == 'live' and advisor == 'jev' and not key:
-            raise ValueError('Set TYPESAFE_API_KEY to your own TypeSafe API key, or set BROWSER_ADVISOR=none')
         limit = int(os.getenv('DAILY_SEND_LIMIT', '10'))
         if not 1 <= limit <= 100:
             raise ValueError('DAILY_SEND_LIMIT must be between 1 and 100')

@@ -51,11 +51,11 @@ class Button:
     def get_attribute(self, name): return 'Connect with Example Person'
 
 
-def test_browser_advisor_is_optional_scoped_and_rechecks_page(monkeypatch):
+def test_browser_advisor_is_optional_scoped_and_rechecks_page(monkeypatch, tmp_path):
     one, two, send = Button('Connect'), Button('Connect'), Button('Send')
     elements = [one, send, Button('Connect', visible=False), Button('Connect', enabled=False)]
     card = SimpleNamespace(find_elements=lambda *args: elements)
-    b = LinkedInBrowser(SimpleNamespace(browser_advisor='none', typesafe_key='fixture'), None)
+    b = LinkedInBrowser(SimpleNamespace(browser_advisor='none', typesafe_key='fixture', data_dir=tmp_path), None)
     b.driver = SimpleNamespace(current_url='https://www.linkedin.com/in/example')
     b.check = lambda: None
     calls = []

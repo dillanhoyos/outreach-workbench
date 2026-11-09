@@ -3,3 +3,5 @@
 .browser-stage:fullscreen{width:100vw;height:100vh;border:0;border-radius:0}.browser-toolbar .quiet+ .quiet{margin-left:0}
 
 textarea{font:inherit;line-height:1.6;width:100%;resize:vertical;padding:12px;border:1px solid #cedbd3;border-radius:8px;color:var(--ink);background:white}#discovery-state{margin-top:18px;font-size:12px}
+
+.connection-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.device-card{padding:16px;background:#eef5ef;border:1px solid var(--line);border-radius:10px;margin:16px 0}.device-card strong{display:block;font-size:24px;letter-spacing:3px;margin:10px 0}.device-card a{display:block;margin:10px 0}#jev-form,#codex-key-form{display:grid;gap:8px;margin:14px 0}#jev-form input,#codex-key-form input{width:100%;min-width:0}#codex-message,#jev-message{overflow-wrap:anywhere;font-size:13px}

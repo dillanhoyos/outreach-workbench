@@ -161,7 +161,8 @@ class LinkedInBrowser:
         from .jev import JevAdvisor
         page_url = self.browser().current_url
         controls = [{'text': e.text.strip(), 'label': e.get_attribute('aria-label') or ''} for e in matches]
-        selected = JevAdvisor(self.settings.typesafe_key).choose_connect(controls)
+        from .connections import JevConnection
+        selected = JevAdvisor(JevConnection(self.settings).key()).choose_connect(controls)
         # Never use a model-generated selector or URL, or act on a changed page.
         self.check()
         current = candidates()

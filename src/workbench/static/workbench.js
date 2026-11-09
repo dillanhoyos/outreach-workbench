@@ -1,10 +1,10 @@
 'use strict';
-let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false;
+let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null;
 const $ = id => document.getElementById(id);
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
-async function api(path, body) {
+async function api(path, body, method) {
   const response = await fetch('/api/' + path, {
-    method: body === undefined ? 'GET' : 'POST',
+    method: method || (body === undefined ? 'GET' : 'POST'),
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
   });
@@ -23,12 +23,23 @@ function controls() {
   $('login').disabled = !idle || workspace.mode !== 'live' || !browserState?.available || Boolean(workspace.linkedin_restriction);
   $('verify').disabled = !idle || workspace.mode !== 'live' || !browserState?.available;
   $('reset-browser').disabled = !idle || workspace.mode !== 'live';
+  for (const id of ['codex-login', 'codex-key-save', 'codex-check', 'codex-logout', 'codex-cancel', 'jev-save', 'jev-check', 'jev-disconnect']) $(id).disabled = !idle || connectionBusy;
+  if (idle && !connectionBusy && connections) {
+    $('codex-login').disabled = !connections.codex.available || connections.codex.signed_in || Boolean(connections.codex.pending);
+    $('codex-key-save').disabled = !connections.codex.available || connections.codex.signed_in || Boolean(connections.codex.pending);
+    $('codex-cancel').disabled = !connections.codex.pending;
+    $('codex-check').disabled = !connections.codex.signed_in;
+    $('codex-logout').disabled = !connections.codex.signed_in;
+    $('jev-check').disabled = !connections.jev.configured;
+    $('jev-disconnect').disabled = !connections.jev.configured;
+  }
 }
 async function refresh() {
   if (refreshing) return;
   refreshing = true;
   try {
-    const [status, leads, replies, jobs] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs'].map(p => api(p)));
+    const [status, leads, replies, jobs, authState] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs', 'connections'].map(p => api(p)));
+    connections = authState;
     workspace = status;
     $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
     $('status').textContent = (status.busy ? 'A job is running. ' : 'Ready. ') + 'Daily action limit: ' + status.daily_limit + ' (UTC).';
@@ -40,7 +51,7 @@ async function refresh() {
     $('discovery-state').textContent = status.mode === 'demo'
       ? 'Demo only: this previews a fixed set of fictional people. It does not interpret the prompt or search the web.'
       : 'Live research is not connected yet. The planned Codex/Jev agent will use this brief to research pages in the browser. No search runs from this form in this release.';
-    $('jev-state').textContent = status.browser_advisor === 'jev' ? 'Enabled · key configured' : 'Off';
+    renderConnections();
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
     $('leads').replaceChildren();
@@ -120,3 +131,37 @@ $('discover').onclick = () => run(async () => { const prompt = $('discovery-prom
 $('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
 $('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
 setInterval(() => { if (token && workspace) run(refresh); }, 5000);
+
+function renderConnections() {
+  const c = connections.codex, j = connections.jev;
+  $('codex-state').textContent = !c.available ? 'Unavailable' : c.signed_in ? 'Signed in' : c.pending ? 'Awaiting sign-in' : 'Not connected';
+  $('codex-account').textContent = c.account ? (c.account.email || 'OpenAI API account') + (c.account.planType ? ' · ' + c.account.planType : '') : 'Sign in with your own ChatGPT account or connect an OpenAI API key.';
+  $('codex-message').textContent = c.message || '';
+  $('codex-device').hidden = !c.pending;
+  if (c.pending) {
+    const url = new URL(c.pending.verification_url);
+    if (url.protocol !== 'https:' || url.hostname !== 'auth.openai.com' || url.username || url.password) throw Error('Unexpected Codex sign-in address.');
+    $('codex-device-link').href = url.href;
+    $('codex-device-code').textContent = c.pending.user_code;
+  } else { $('codex-device-code').textContent = ''; $('codex-device-link').removeAttribute('href'); }
+  $('jev-state').textContent = j.configured ? (j.checked_at ? 'Key checked' : 'Key configured · untested') : 'Not connected';
+  if (j.checked_at) $('jev-message').textContent = 'Last successful check: ' + j.checked_at + (j.advisor_enabled ? '. Browser assistance enabled.' : '. Browser assistance is off.');
+}
+async function connectionAction(path, body, method) {
+  connectionBusy = true; controls();
+  try { const result = await api(path, body, method); await refresh(); return result; }
+  finally { connectionBusy = false; controls(); }
+}
+$('jev-form').onsubmit = event => { event.preventDefault(); run(async () => {
+  const key = $('jev-key').value.trim(); $('jev-key').value = '';
+  $('jev-message').textContent = 'Testing authentication…';
+  try { const result = await connectionAction('connections/jev', {key}); $('jev-message').textContent = result.message; }
+  catch (e) { $('jev-message').textContent = e.message; throw e; }
+}); };
+$('jev-check').onclick = () => run(async () => { const result = await connectionAction('connections/jev/check', {}); $('jev-message').textContent = result.message; });
+$('jev-disconnect').onclick = () => run(async () => { const result = await connectionAction('connections/jev', undefined, 'DELETE'); $('jev-message').textContent = result.message; });
+$('codex-login').onclick = () => run(async () => { $('codex-message').textContent = 'Requesting a one-time sign-in code…'; try { await connectionAction('connections/codex/login', {}); } catch(e) { $('codex-message').textContent = e.message; throw e; } });
+$('codex-check').onclick = () => run(() => connectionAction('connections/codex/check', {}));
+$('codex-logout').onclick = () => run(() => connectionAction('connections/codex', undefined, 'DELETE'));
+$('codex-cancel').onclick = () => run(() => connectionAction('connections/codex/cancel', {}));
+$('codex-key-form').onsubmit = event => { event.preventDefault(); run(async () => { const key = $('codex-key').value.trim(); $('codex-key').value = ''; await connectionAction('connections/codex/key', {key}); }); };

@@ -49,7 +49,8 @@ In `.env`, set `WORKBENCH_MODE=live` and configure only the services you need:
 | Setting | Where its value comes from | When needed |
 | --- | --- | --- |
 | `WORKBENCH_TOKEN`, `VNC_PASSWORD` | Created by `python3 scripts/setup.py` | Local app / browser access |
-| `BROWSER_ADVISOR=jev`, `TYPESAFE_API_KEY` | Your key from [TypeSafe](https://console.typesafe.ai/keys) | Optional Jev browser assistance |
+| Jev connection panel; `BROWSER_ADVISOR=jev` enables assistance | Your key from [TypeSafe](https://console.typesafe.ai/keys) | Optional Jev browser assistance |
+| Codex connection panel | Your ChatGPT sign-in or OpenAI API key | Authentication ready; research worker still planned |
 | `GOOGLE_SHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Your workbook and downloaded service-account file | Optional Sheets export |
 
 LinkedIn login happens directly in the browser, including 2FA. No LinkedIn

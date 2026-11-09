@@ -1,7 +1,7 @@
 """Local authenticated API. Workers never run on a recurring schedule."""
 import json
 import fcntl
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 import secrets
 import threading
 import uuid
@@ -10,7 +10,11 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, SecretStr
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from .connections import JevConnection
+from .codex_auth import CodexAuth
 from .config import Settings
 from .store import Store, now
 from .demo import DemoProvider
@@ -21,6 +25,9 @@ class DiscoveryRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     prompt: str = Field(min_length=2, max_length=5000)
     limit: int = Field(default=10, ge=1, le=100)
+
+class ConnectionKey(BaseModel):
+    key: SecretStr
 
 class Approval(BaseModel):
     note: str = Field(min_length=1,max_length=200)
@@ -74,12 +81,15 @@ def create_app(settings=None, provider=None):
     executor=ThreadPoolExecutor(max_workers=1)
     busy=threading.Lock()
     app.state.store=store
+    jev_connection = JevConnection(settings)
+    codex_connection = CodexAuth(settings.data_dir)
 
     @asynccontextmanager
     async def lifespan(app):
         try:yield
         finally:
             executor.shutdown(wait=True,cancel_futures=True)
+            codex_connection.close()
             if hasattr(provider,'linkedin'):provider.linkedin.close_transport()
             fcntl.flock(process_lock,fcntl.LOCK_UN)
             process_lock.close()
@@ -93,6 +103,78 @@ def create_app(settings=None, provider=None):
     async def invalid(request, exc):
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=400,content={'detail':str(exc)})
+
+    @app.exception_handler(ProviderError)
+    async def provider_error(request, exc):
+        return JSONResponse(status_code=400, content={'detail': str(exc)})
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        # Never echo credential inputs in validation error responses.
+        return JSONResponse(status_code=422, content={'detail': 'Invalid request fields. Check the form and try again.'})
+
+    @app.middleware('http')
+    async def private_connections(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith('/api/connections'):
+            response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @contextmanager
+    def connection_idle():
+        if not busy.acquire(blocking=False):
+            raise HTTPException(409, 'Wait for the current job before changing connections.')
+        try:
+            yield
+        finally:
+            busy.release()
+
+    @app.get('/api/connections', dependencies=[Depends(auth)])
+    def connections():
+        try: codex_status = codex_connection.status()
+        except ProviderError as exc:
+            codex_status = {'available': False, 'signed_in': False, 'message': str(exc)}
+        return {'jev': jev_connection.status(), 'codex': codex_status}
+
+    @app.post('/api/connections/jev', dependencies=[Depends(auth)])
+    def connect_jev(body: ConnectionKey):
+        with connection_idle():
+            return jev_connection.connect(body.key.get_secret_value())
+
+    @app.post('/api/connections/jev/check', dependencies=[Depends(auth)])
+    def check_jev():
+        with connection_idle():
+            return jev_connection.check()
+
+    @app.delete('/api/connections/jev', dependencies=[Depends(auth)])
+    def disconnect_jev():
+        with connection_idle():
+            return jev_connection.disconnect()
+
+    @app.post('/api/connections/codex/login', dependencies=[Depends(auth)])
+    def codex_login():
+        with connection_idle():
+            return codex_connection.start_device()
+
+    @app.post('/api/connections/codex/key', dependencies=[Depends(auth)])
+    def codex_key(body: ConnectionKey):
+        with connection_idle():
+            return codex_connection.connect_key(body.key.get_secret_value())
+
+    @app.post('/api/connections/codex/check', dependencies=[Depends(auth)])
+    def codex_check():
+        with connection_idle():
+            return codex_connection.check()
+
+    @app.post('/api/connections/codex/cancel', dependencies=[Depends(auth)])
+    def codex_cancel():
+        with connection_idle():
+            return codex_connection.cancel()
+
+    @app.delete('/api/connections/codex', dependencies=[Depends(auth)])
+    def codex_logout():
+        with connection_idle():
+            return codex_connection.logout()
 
     def job(kind,fn):
         if not busy.acquire(blocking=False):raise HTTPException(409,'A job is already running')
@@ -121,7 +203,7 @@ def create_app(settings=None, provider=None):
     @app.get('/api/status',dependencies=[Depends(auth)])
     def status():
         return {'mode':settings.mode,'daily_limit':settings.daily_limit,
-                'browser_advisor':settings.browser_advisor,'jev_configured':bool(settings.typesafe_key),
+                'browser_advisor':settings.browser_advisor,'jev_configured':bool(jev_connection.key()),
                 'discovery':{'ready':settings.mode == 'demo','provider':'demo' if settings.mode == 'demo' else 'not_connected'},'sheets_configured':bool(settings.sheet_id and settings.google_credentials),
                 'busy':busy.locked(),'account':store.setting('account'),
                 'linkedin_restriction':store.setting('linkedin_restriction'),

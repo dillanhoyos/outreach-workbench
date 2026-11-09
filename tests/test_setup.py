@@ -38,13 +38,12 @@ def test_setup_copied_template_and_legacy_placeholders(tmp_path):
     assert '\nWORKBENCH_TOKEN=\n' not in p.read_text()
 
 
-def test_jev_configuration_requires_explicit_enable_and_key(monkeypatch):
+def test_jev_configuration_allows_key_to_be_connected_in_ui(monkeypatch):
     monkeypatch.setenv('WORKBENCH_TOKEN', 'x' * 32)
     monkeypatch.setenv('WORKBENCH_MODE', 'live')
     monkeypatch.setenv('BROWSER_ADVISOR', 'jev')
     monkeypatch.delenv('TYPESAFE_API_KEY', raising=False)
-    with pytest.raises(ValueError, match='TYPESAFE_API_KEY'):
-        Settings.from_env()
+    assert Settings.from_env().typesafe_key == ''
     monkeypatch.setenv('TYPESAFE_API_KEY', 'fixture-key')
     assert Settings.from_env().browser_advisor == 'jev'
     monkeypatch.setenv('BROWSER_ADVISOR', 'none')

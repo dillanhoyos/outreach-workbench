@@ -8,6 +8,9 @@ and returns HTTP 503 without starting a job or adding leads. The Codex research
 worker, research browser tools, evidence staging and company-response policy
 below are **planned work**, not features enabled by the current Jev key.
 
+Codex device-code/API-key login and Jev key connection/check/disconnect are now
+implemented in **Your connections**. Authentication alone does not start research.
+
 ## What the original workflow actually does
 
 The source workflow is company-first and evidence-driven. Its current concession
