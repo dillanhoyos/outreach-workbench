@@ -139,6 +139,30 @@ class LinkedInBrowser:
         if len(matches)!=1:raise ProviderError('Expected one unambiguous action button; LinkedIn layout may have changed.')
         return matches[0]
 
+    def connect_button(self, card):
+        # Jev can only choose among already validated, recipient-scoped controls.
+        labels = {'Connect', 'Conectar'}
+        def candidates():
+            return [e for e in card.find_elements(By.CSS_SELECTOR, 'button,[role="button"]')
+                    if e.is_displayed() and e.is_enabled() and e.text.strip() in labels]
+        matches = candidates()
+        if len(matches) == 1:
+            return matches[0]
+        if not matches or getattr(self.settings, 'browser_advisor', 'none') != 'jev':
+            raise ProviderError('Expected one unambiguous Connect control. Review the browser layout.')
+        from .jev import JevAdvisor
+        page_url = self.browser().current_url
+        controls = [{'text': e.text.strip(), 'label': e.get_attribute('aria-label') or ''} for e in matches]
+        selected = JevAdvisor(self.settings.typesafe_key).choose_connect(controls)
+        # Never use a model-generated selector or URL, or act on a changed page.
+        self.check()
+        current = candidates()
+        if self.browser().current_url != page_url or current != matches or any(
+                e.text.strip() != c['text'] or (e.get_attribute('aria-label') or '') != c['label']
+                for e, c in zip(current, controls)):
+            raise ProviderError('Connect controls changed during Jev selection. No click attempted.')
+        return current[selected]
+
     def topcard(self):
         d=self.browser()
         WebDriverWait(d,12).until(lambda d:d.find_elements(By.CSS_SELECTOR,'main h1'))
@@ -158,7 +182,7 @@ class LinkedInBrowser:
             return {'status':'skipped','evidence':'Pending invitation or existing connection visible; no send attempted.'}
         # Only a directly visible top-card Connect button is supported. Never
         # select a recommendation card or a global matching button.
-        self.unique_button(card,{'Connect','Conectar'}).click()
+        self.connect_button(card).click()
         modal=WebDriverWait(d,8).until(lambda d:next((e for e in d.find_elements(By.CSS_SELECTOR,'[role="dialog"]') if e.is_displayed()),False))
         self.check()
         if modal.find_elements(By.CSS_SELECTOR,'input[type="email"]'):

@@ -6,7 +6,18 @@ required. Each operator supplies their own connections. Never commit `.env`, the
 
 ## Local workbench
 
-`python3 scripts/setup.py` generates a random token in a mode-0600 `.env`. The UI
+Run `python3 scripts/setup.py` once from the project folder. It copies the
+commented `.env.example` template into a private `.env` and creates two random
+local passwords: `WORKBENCH_TOKEN` for the app and `VNC_PASSWORD` for the browser
+viewer. Open `.env` in your text editor; copy the value to the right of `=` when
+asked for that password. Neither value is a LinkedIn password or an API key.
+
+You do not need to invent these passwords. The setup script does not call any
+external service, create provider accounts or sign you in. If `.env` already
+exists, it fills missing/blank/example local passwords and preserves configured
+values and API keys. The file is readable/writable only by your OS user.
+
+The UI
 accepts it into tab memory only; it is not placed in a URL, localStorage or cookie.
 Every data/action API requires the token. The unauthenticated page contains only
 the static UI; `/health` only reports process health.
@@ -34,6 +45,33 @@ API integration. Check the service's applicable terms and your authorization
 before enabling it. No claim is made that automation avoids account restrictions.
 The supported send path requires a visible top-card Connect button; unsupported
 layouts stop for review. No InMail or recipient email guessing is implemented.
+
+## Jev / TypeSafe (optional browser assistance)
+
+The original private scripts use Jev for several tasks. This public release
+currently supports only Connect-control selection, not the original discovery
+crawler, employer qualification or reply intent classification. Apollo remains
+the live discovery provider; you can also import your own leads.
+
+1. Obtain your own API key at https://console.typesafe.ai/keys.
+2. In your private `.env`, set `BROWSER_ADVISOR=jev` and
+   `TYPESAFE_API_KEY=` followed by your key.
+3. Keep `WORKBENCH_MODE=live` for real browser operations and run
+   `docker compose --profile live up --build -d` to load your changes.
+
+The app calls `jev-latest` at the TypeSafe System One endpoint only when multiple
+eligible Connect controls remain in the verified recipient's top card. A single
+clear control needs no model call. The request includes bounded button text and
+accessibility labels, which can contain the recipient's name. It does not send
+cookies, passwords, the invitation note, inbox messages or the CRM to Jev.
+Provider usage may incur charges.
+
+Jev returns a choice among observed controls; the browser rechecks those controls
+before clicking. It cannot supply selectors/URLs or select Send. Unknown/invalid
+responses, API failures and HTTP 429 stop the operation without retry. Changing
+`BROWSER_ADVISOR` back to `none` disables Jev calls even if the key remains set.
+Demo mode never calls Jev. A configured key is not proof that its account access
+works; this adapter is fixture-tested, not validated with a paid live account.
 
 ## Apollo (lead finder)
 

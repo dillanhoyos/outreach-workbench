@@ -16,6 +16,15 @@ See TESTING.md for reproducible commands and the live verification boundary.
 No production contacts, credentials, browser sessions or source Git history are
 included. Each installation supplies its own accounts and local configuration.
 
+## Optional Jev configuration
+
+`BROWSER_ADVISOR=jev` and `TYPESAFE_API_KEY` enable a bounded Connect-control
+advisor. Browser scope checks and final Send validation remain deterministic.
+Setup preserves existing API keys while generating missing local app/viewer
+passwords. Tests cover request minimization, invalid choices, changed pages,
+rate-limit stops and preservation of existing settings. Paid live Jev access has
+not been tested. The original Jev discovery crawler is not included.
+
 ## Current limitations
 
 Single local operator; no hosted multi-tenant access control or scheduler.

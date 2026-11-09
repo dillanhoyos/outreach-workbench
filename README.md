@@ -10,7 +10,7 @@ live-account behavior has not been verified for this release.
 
 ## Start the demo
 
-Requirements: Docker Engine/Desktop with Compose, Python 3 to generate local secrets.
+Requirements: Docker Engine/Desktop with Compose, Python 3 to run the one-time setup.
 
 ```sh
 git clone https://github.com/dillanhoyos/outreach-workbench.git
@@ -18,6 +18,17 @@ cd outreach-workbench
 python3 scripts/setup.py
 docker compose up --build -d
 ```
+
+The setup command creates a private `.env` file from [.env.example](.env.example).
+It fills in two random local passwords for you:
+
+- `WORKBENCH_TOKEN`: paste its value into the app's **Connect** field.
+- `VNC_PASSWORD`: enter its value in the browser viewer when using live mode.
+
+Open `.env` in your text editor to find these values. They are not LinkedIn
+credentials. Setup does not create external accounts or obtain API keys.
+If you already copied `.env.example` to `.env`, setup fills the blank local
+passwords. Rerunning it preserves your existing passwords and service keys.
 
 Open http://localhost:8080. Copy `WORKBENCH_TOKEN` from your private `.env` into the
 login field. Click **Find leads**, review a fictional candidate and write a note,
@@ -31,7 +42,22 @@ application, not a multi-user hosted service.
 
 ## Connect live services
 
-See [Authentication](docs/AUTHENTICATION.md). Configure `.env`, then:
+In `.env`, set `WORKBENCH_MODE=live` and configure only the services you need:
+
+| Setting | Where its value comes from | When needed |
+| --- | --- | --- |
+| `WORKBENCH_TOKEN`, `VNC_PASSWORD` | Created by `python3 scripts/setup.py` | Local app / browser access |
+| `BROWSER_ADVISOR=jev`, `TYPESAFE_API_KEY` | Your key from [TypeSafe](https://console.typesafe.ai/keys) | Optional Jev browser assistance |
+| `APOLLO_API_KEY` | Your Apollo account | Live lead discovery |
+| `GOOGLE_SHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Your workbook and downloaded service-account file | Optional Sheets export |
+
+LinkedIn login happens directly in the browser, including 2FA. No LinkedIn
+password belongs in `.env`. Leave Jev disabled (`BROWSER_ADVISOR=none`) to use
+fixed browser selectors without model calls.
+
+See [Authentication](docs/AUTHENTICATION.md) for each connection. After editing
+`.env`, recreate the containers to load the new settings:
+
 
 ```sh
 docker compose --profile live up --build -d
@@ -43,6 +69,10 @@ docker compose --profile live up --build -d
 - **Outreach manager:** approve an exact note, then explicitly send selected leads.
   It verifies the signed-in account, recipient name and company before a single
   send. Ambiguous results become `uncertain` and cannot be automatically retried.
+- **Optional Jev assistance:** selects among ambiguous, visible Connect controls
+  inside the verified recipient profile. It cannot invent URLs, choose a Send
+  action or bypass approvals. This release does not include the original private
+  project’s Jev discovery crawler or reply classifier.
 - **Message reader:** reads the current LinkedIn inbox, deduplicates conversation
   cards and imports visible incoming messages only for known CRM profile URLs.
   The limit is unique conversation cards, not message count. It does not claim a

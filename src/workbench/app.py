@@ -121,6 +121,7 @@ def create_app(settings=None, provider=None):
     @app.get('/api/status',dependencies=[Depends(auth)])
     def status():
         return {'mode':settings.mode,'daily_limit':settings.daily_limit,
+                'browser_advisor':settings.browser_advisor,'jev_configured':bool(settings.typesafe_key),
                 'apollo_configured':bool(settings.apollo_key),'sheets_configured':bool(settings.sheet_id and settings.google_credentials),
                 'busy':busy.locked(),'account':store.setting('account'),
                 'linkedin_restriction':store.setting('linkedin_restriction'),
