@@ -1,5 +1,5 @@
 'use strict';
-let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false;
+let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false, researchRestored = false;
 const $ = id => document.getElementById(id);
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body, method) {
@@ -75,14 +75,13 @@ async function refresh() {
       : status.discovery.reason || 'Ready: prepare a plan, review it, then start browser research. Candidates will be saved for review.';
     $('research-browser-help').hidden = status.mode !== 'live' || Boolean(status.account);
     if (status.mode === 'live' && status.discovery.plan_ready && !status.discovery.ready) $('discovery-state').textContent = 'You can prepare your plan now. ' + status.discovery.reason;
+    if (!researchRestored) {
+      researchJobId = jobs.filter(job => job.kind === 'discovery').sort((a,b) => b.created.localeCompare(a.created))[0]?.id || null;
+      researchRestored = true;
+    }
     if (researchJobId) {
       const launch = jobs.find(job => job.id === researchJobId);
-      if (launch) {
-        const result = JSON.parse(launch.result);
-        $('research-launch-status').textContent = launch.status === 'running' ? 'Research is running. Follow the browser and activity below.'
-          : launch.status === 'completed' ? 'Research finished: ' + (result.staged ?? 0) + ' candidates saved. ' + (result.reason || '').replaceAll('_', ' ')
-          : 'Research stopped: ' + (result.message || launch.status);
-      }
+      if (launch) $('research-launch-status').textContent = researchLaunchMessage(launch);
     }
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
@@ -293,3 +292,13 @@ function renderWorkspace() {
 }
 window.addEventListener('hashchange', () => showView(window.location.hash.slice(1)));
 showView(window.location.hash.slice(1));
+
+function researchLaunchMessage(job) {
+  const result = JSON.parse(job.result || '{}');
+  if (job.status === 'running') return 'Research is running. Open Research activity for progress or Browser to watch.';
+  if (job.status !== 'completed') return 'Research stopped: ' + (result.message || job.status);
+  const normal = ['target_reached', 'search_exhausted', 'visit_limit'];
+  const stopped = result.reason && !normal.includes(result.reason);
+  return (stopped ? 'Research stopped: ' : 'Research finished: ') +
+    (result.staged ?? result.added ?? 0) + ' candidates saved. ' + (result.reason || '').replaceAll('_', ' ');
+}

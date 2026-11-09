@@ -55,3 +55,14 @@ assert.equal(workspaceViews.filter(id=>!$(id).hidden).length,1);
 showView('unknown');assert.equal(window.location.hash,'#discovery');
 '''
     subprocess.run(['node', '-e', code], check=True, capture_output=True, text=True)
+
+@pytest.mark.skipif(not shutil.which('node'), reason='Node is required for UI logic checks')
+def test_research_result_distinguishes_stopped_worker_from_success():
+    script = Path('src/workbench/static/workbench.js').read_text()
+    code = "const assert=require('node:assert/strict');\n" + script[script.index('function researchLaunchMessage('):] + '''
+assert.match(researchLaunchMessage({status:'completed',result:JSON.stringify({staged:0,reason:'LinkedIn sign-in or verification required.'})}), /^Research stopped: 0 candidates saved. LinkedIn sign-in/);
+assert.match(researchLaunchMessage({status:'completed',result:JSON.stringify({staged:3,reason:'target_reached'})}), /^Research finished: 3 candidates saved/);
+assert.match(researchLaunchMessage({status:'interrupted',result:'{}'}), /Research stopped: interrupted/);
+assert.match(researchLaunchMessage({status:'running',result:'{}'}), /Research is running/);
+'''
+    subprocess.run(['node', '-e', code], check=True, capture_output=True, text=True)
