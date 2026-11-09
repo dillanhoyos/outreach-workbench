@@ -49,3 +49,31 @@ def test_jev_configuration_requires_explicit_enable_and_key(monkeypatch):
     assert Settings.from_env().browser_advisor == 'jev'
     monkeypatch.setenv('BROWSER_ADVISOR', 'none')
     assert Settings.from_env().browser_advisor == 'none'
+
+
+@pytest.mark.parametrize('assignment', ['WORKBENCH_TOKEN=short', 'WORKBENCH_TOKEN = short',
+    'export WORKBENCH_TOKEN=short', 'WORKBENCH_TOKEN=short # a long comment is not part of the password',
+    'WORKBENCH_TOKEN="short" # a long comment is not part of the password'])
+def test_short_token_repaired_and_accepted_by_app(tmp_path, monkeypatch, assignment):
+    p = tmp_path / '.env'
+    p.write_text(assignment + '\nVNC_PASSWORD=keepview\nTYPESAFE_API_KEY=fixture-preserved\n')
+    module.setup(tmp_path)
+    content = p.read_text()
+    token = next(line.split('=', 1)[1] for line in content.splitlines() if line.startswith('WORKBENCH_TOKEN='))
+    assert 'VNC_PASSWORD=keepview' in content and 'TYPESAFE_API_KEY=fixture-preserved' in content
+    monkeypatch.setenv('WORKBENCH_TOKEN', token)
+    monkeypatch.setenv('WORKBENCH_MODE', 'demo')
+    monkeypatch.setenv('BROWSER_ADVISOR', 'none')
+    assert Settings.from_env().token == token
+
+
+def test_explicit_reset_rotates_only_app_token(tmp_path, capsys):
+    p = tmp_path / '.env'
+    old = 'x' * 32
+    p.write_text('WORKBENCH_TOKEN=' + old + '\nVNC_PASSWORD=keepview\nAPOLLO_API_KEY=fixture-existing\n')
+    module.setup(tmp_path, reset_token=True)
+    text = p.read_text()
+    assert old not in text
+    assert 'VNC_PASSWORD=keepview' in text and 'APOLLO_API_KEY=fixture-existing' in text
+    output = capsys.readouterr().out
+    assert '--force-recreate' in output and 'fixture-existing' not in output

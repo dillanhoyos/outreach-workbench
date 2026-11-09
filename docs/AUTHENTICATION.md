@@ -14,8 +14,11 @@ asked for that password. Neither value is a LinkedIn password or an API key.
 
 You do not need to invent these passwords. The setup script does not call any
 external service, create provider accounts or sign you in. If `.env` already
-exists, it fills missing/blank/example local passwords and preserves configured
+exists, it fills missing/blank/example local passwords and repairs app passwords shorter than 24 characters and preserves configured
 values and API keys. The file is readable/writable only by your OS user.
+Use `python3 scripts/setup.py --reset-token` to deliberately replace the app
+password while preserving your browser password and API keys. Recreate the app
+container afterward so it receives the new value.
 
 The UI
 accepts it into tab memory only; it is not placed in a URL, localStorage or cookie.

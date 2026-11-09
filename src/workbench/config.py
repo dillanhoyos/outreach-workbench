@@ -22,7 +22,9 @@ class Settings:
             raise ValueError('WORKBENCH_MODE must be demo or live')
         token = os.getenv('WORKBENCH_TOKEN', '')
         if len(token) < 24 or token == 'replace-with-a-random-token-of-at-least-24-characters':
-            raise ValueError('Run python scripts/setup.py to generate WORKBENCH_TOKEN')
+            raise ValueError('WORKBENCH_TOKEN is missing, shorter than 24 characters, or an example value. '
+                             'On your host, run `python3 scripts/setup.py --reset-token`. '
+                             'Then recreate the container with docker compose up --build -d --force-recreate --wait')
         advisor = os.getenv('BROWSER_ADVISOR', 'none')
         if advisor not in ('none', 'jev'):
             raise ValueError('BROWSER_ADVISOR must be none or jev')

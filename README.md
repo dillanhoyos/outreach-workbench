@@ -124,3 +124,19 @@ future LinkedIn layout. Selectors fail closed when required evidence is absent.
 
 See [verification and limitations](docs/TESTING.md), [security](SECURITY.md),
 and [contributing](CONTRIBUTING.md). Licensed under [MIT](LICENSE).
+
+## App keeps restarting with a WORKBENCH_TOKEN error
+
+The app requires an app password of at least 24 characters. Older setup versions
+preserved manually entered short passwords, even though the app rejected them.
+Update and regenerate only the app password, keeping your API keys and local data:
+
+```sh
+git pull --ff-only
+python3 scripts/setup.py --reset-token
+docker compose up --build -d --force-recreate --wait
+```
+
+For live mode, use `docker compose --profile live up --build -d --force-recreate --wait`
+in the last step. Open `.env` locally and copy the new `WORKBENCH_TOKEN` value into
+the app. Do not share the file or token. No volume deletion is needed.
