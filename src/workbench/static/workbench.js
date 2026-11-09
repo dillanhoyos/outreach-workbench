@@ -1,5 +1,5 @@
 'use strict';
-let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null;
+let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false;
 const $ = id => document.getElementById(id);
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body, method) {
@@ -20,12 +20,16 @@ function controls() {
   const plan = researchState?.plan;
   const changed = Boolean(plan) && (plan.prompt !== $('discovery-prompt').value.trim() || plan.limit !== Number($('discovery-limit').value));
   const blocked = !connected ? 'Connect your workspace first.'
+    : researchSubmitting ? 'Starting research…'
     : workspace.busy ? 'Wait for the current job to finish.'
     : !plan ? 'Prepare a research plan first.'
     : !workspace.discovery.ready ? workspace.discovery.reason || 'Complete the research connections first.'
-    : changed ? 'Your prompt or target differs from this saved plan. Restore it below, or prepare a new plan.'
+    : changed ? 'This button runs the reviewed plan shown above. Your edited form is different; prepare a new plan to use those edits.'
     : !$('research-history').checked ? 'Confirm the CRM history checkbox above to continue.' : '';
-  $('research-start').disabled = Boolean(blocked);
+  // Only local prerequisites disable submission. Server checks current auth,
+  // account, restrictions and job ownership and returns the precise failure.
+  $('research-start').disabled = !connected || researchSubmitting || !plan || !$('research-history').checked;
+  $('research-start').textContent = plan ? 'Start reviewed plan (' + plan.limit + ')' : 'Start research';
   $('research-start-help').textContent = blocked || 'Ready. Start research will browse profiles and save candidates to your local CRM.';
   $('research-start-browser').hidden = !connected || Boolean(workspace.account) || workspace.mode !== 'live';
   $('research-use-plan').hidden = !changed;
@@ -71,6 +75,15 @@ async function refresh() {
       : status.discovery.reason || 'Ready: prepare a plan, review it, then start browser research. Candidates will be saved for review.';
     $('research-browser-help').hidden = status.mode !== 'live' || Boolean(status.account);
     if (status.mode === 'live' && status.discovery.plan_ready && !status.discovery.ready) $('discovery-state').textContent = 'You can prepare your plan now. ' + status.discovery.reason;
+    if (researchJobId) {
+      const launch = jobs.find(job => job.id === researchJobId);
+      if (launch) {
+        const result = JSON.parse(launch.result);
+        $('research-launch-status').textContent = launch.status === 'running' ? 'Research is running. Follow the browser and activity below.'
+          : launch.status === 'completed' ? 'Research finished: ' + (result.staged ?? 0) + ' candidates saved. ' + (result.reason || '').replaceAll('_', ' ')
+          : 'Research stopped: ' + (result.message || launch.status);
+      }
+    }
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
     if (researchState.plan) $('research-plan-text').textContent = 'Your brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
@@ -196,9 +209,19 @@ $('research-history').onchange = controls;
 $('discovery-prompt').oninput = controls;
 $('discovery-limit').oninput = controls;
 $('research-start').onclick = () => run(async () => {
-  const plan=researchState.plan;
-  await api('discover',{prompt:plan.prompt,limit:plan.limit,plan_id:plan.id,history_ack:$('research-history').checked});
-  await refresh();
+  const plan=researchState?.plan;
+  if (!plan) throw Error('Prepare a research plan first.');
+  researchSubmitting=true; researchJobId=null; controls();
+  $('research-launch-status').textContent='Sending the research request…';
+  try {
+    const response=await api('discover',{prompt:plan.prompt,limit:plan.limit,plan_id:plan.id,history_ack:$('research-history').checked});
+    researchJobId=response.job_id;
+    $('research-launch-status').textContent='Research request accepted. Waiting for the browser…';
+    await refresh();
+  } catch (e) {
+    $('research-launch-status').textContent='Research could not start: ' + e.message;
+    throw e;
+  } finally { researchSubmitting=false; controls(); }
 });
 $('research-stop').onclick = () => run(async () => { await api('discovery/stop',{}); await refresh(); });
 $('google-login').onclick = () => run(async () => {

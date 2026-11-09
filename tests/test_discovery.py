@@ -43,3 +43,47 @@ def test_planning_allowed_before_browser_verification_but_research_blocked(tmp_p
             time.sleep(.01)
         assert client.post('/api/discover',json={'prompt':'Find founders','plan_id':'fixture','history_ack':True}).status_code==503
         assert client.get('/api/records/leads').json()==[]
+
+
+def test_verified_account_can_start_research_and_persists(tmp_path,monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from test_research import Browser,model
+    from workbench.research import Discovery
+    class SignedIn:
+        def __init__(self,*args):pass
+        def status(self):return {'signed_in':True}
+        def close(self):pass
+    class AccountBrowser(Browser):
+        def __init__(self,store):super().__init__();self.store=store
+        def verify_account(self,url):
+            account={'name':'Fixture Operator','url':url,'key':'fixture-operator'}
+            self.store.setting('account',account)
+            return account
+        def close_transport(self):pass
+    monkeypatch.setattr('workbench.app.CodexAuth',SignedIn)
+    monkeypatch.setattr('workbench.providers.LiveProvider',lambda settings,store:SimpleNamespace(linkedin=AccountBrowser(store)))
+    monkeypatch.setattr('workbench.app.ResearchBrowser',lambda browser:browser)
+    monkeypatch.setattr('workbench.app.Discovery',lambda store,auth,browser,jev:Discovery(store,auth,browser,model=model))
+    settings=Settings(tmp_path,'x'*32,'live','',10,'','')
+    def wait(api):
+        for _ in range(200):
+            if not api.get('/api/status').json()['busy']:return
+            time.sleep(.01)
+        raise AssertionError('Job did not finish')
+    with TestClient(create_app(settings)) as api:
+        api.headers['Authorization']='Bearer '+'x'*32
+        assert api.post('/api/discovery/plan',json={'prompt':'Find accounting professionals','limit':1}).status_code==200
+        wait(api)
+        assert api.post('/api/linkedin/verify',json={'profile_url':'https://www.linkedin.com/in/fixture-operator/'}).status_code==200
+        wait(api)
+        assert api.get('/api/status').json()['discovery']['ready']
+        plan=api.get('/api/discovery/state').json()['plan']
+        response=api.post('/api/discover',json={'prompt':plan['prompt'],'limit':1,'plan_id':plan['id'],'history_ack':True})
+        assert response.status_code==200
+        wait(api)
+        assert len(api.get('/api/records/leads').json())==1
+        assert api.get('/api/records/deliveries').json()==[]
+    with TestClient(create_app(settings)) as api:
+        api.headers['Authorization']='Bearer '+'x'*32
+        assert api.get('/api/status').json()['discovery']['ready']
