@@ -1,5 +1,5 @@
 'use strict';
-let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false, researchRestored = false;
+let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false, researchRestored = false, researchSeenJobId = null;
 const $ = id => document.getElementById(id);
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body, method) {
@@ -74,9 +74,12 @@ async function refresh() {
       : status.discovery.reason || 'Ready: prepare a plan, review it, then start browser research. Candidates will be saved for review.';
     $('research-browser-help').hidden = status.mode !== 'live';
     if (status.mode === 'live' && status.discovery.plan_ready && !status.discovery.ready) $('discovery-state').textContent = 'You can prepare your plan now. ' + status.discovery.reason;
-    if (!researchRestored) {
-      researchJobId = jobs.filter(job => job.kind === 'discovery').sort((a,b) => b.created.localeCompare(a.created))[0]?.id || null;
+    const latestResearch = jobs.filter(job => job.kind === 'discovery').sort((a,b) => b.created.localeCompare(a.created))[0];
+    if (!researchRestored || (latestResearch && latestResearch.id !== researchSeenJobId)) {
+      researchJobId = latestResearch?.id || null;
+      researchSeenJobId = researchJobId;
       researchRestored = true;
+      if (latestResearch?.status === 'running') $('research-activity').open = true;
     }
     if (researchJobId) {
       const launch = jobs.find(job => job.id === researchJobId);

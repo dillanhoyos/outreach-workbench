@@ -100,9 +100,12 @@ class Discovery:
         # Quotations must actually occur in captured pages. Model confidence is
         # never sufficient; all proposals still require the human review step.
         p=fold(profile['text']);c=fold(company['text']);d=candidate
+        headline=fold(profile.get('headline',''))
+        headline_evidence=bool(headline and fold(d.current_role_quote)==headline and
+            not re.search(r'\b(former|formerly|previous|past|ex|anterior)\b',headline))
         if (not d.qualified or not all(fold(v) for v in [d.name,d.company,d.role,d.country,d.current_role_quote,d.location_quote,d.sector_quote])
             or fold(d.name)!=fold(profile['title'])
-            or not re.search(r'\b(present|actualidad|actualmente|current|currently|presente|atual|atualmente)\b',fold(d.current_role_quote))
+            or not (headline_evidence or re.search(r'\b(present|actualidad|actualmente|current|currently|presente|atual|atualmente)\b',fold(d.current_role_quote)))
             or fold(d.current_role_quote) not in p
             or fold(d.role) not in fold(d.current_role_quote)
             or fold(d.company) not in fold(d.current_role_quote)
@@ -111,7 +114,7 @@ class Discovery:
             or fold(d.sector_quote) not in c):
             return 'insufficient_evidence'
         evidence=json.dumps({'profile_url':url,'company_url':company['url'],
-            'current_role_quote':d.current_role_quote,'location_quote':d.location_quote,
+            'current_role_quote':d.current_role_quote,'role_source':'profile_headline' if headline_evidence else 'dated_experience','location_quote':d.location_quote,
             'sector_quote':d.sector_quote,'assessment':d.reason,'captured_at':now()},ensure_ascii=False)
         with self.store.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -126,6 +129,7 @@ class Discovery:
         if not history_ack: raise ProviderError('Confirm the local CRM contains your prior contacts/replies, or this is a new campaign.')
         start=time.monotonic();run_id=uuid.uuid4().hex
         report={'run_id':run_id,'target':plan['limit'],'visited':0,'staged':0,'skipped':0,'reason':'search_exhausted'}
+        self.store.setting('research_report',report)
         self.store.setting('research_active',True)
         self.event(run_id,'started',{'plan':plan,'history_acknowledged':True})
         def guard():
@@ -151,9 +155,16 @@ class Discovery:
                     report['visited']+=1
                     self.event(run_id,'visiting',{'url':url})
                     profile=self.browser.profile(url)
-                    selected=self.ask('Select the observed company URL for the CURRENT employer matching the brief. '
-                        'Only use an exact URL from companies. Return empty company_url if current employment is unclear.',
-                        {'brief':plan['prompt'],'profile':profile},Employer)
+                    companies=profile['companies']
+                    direct=[item for item in companies if fold(item['label']) and fold(item['label']) in fold(profile.get('headline',''))]
+                    if not companies:
+                        selected=Employer(company_url='',reason='No observed employer URL; skipped without a model call.')
+                    elif len(direct)==1:
+                        selected=Employer(company_url=direct[0]['url'],reason='Observed company link matches the profile headline; qualification still required.')
+                    else:
+                        selected=self.ask('Select the observed company URL for the CURRENT employer matching the brief. '
+                            'Only use an exact URL from companies. Return empty company_url if current employment is unclear.',
+                            {'brief':plan['prompt'],'profile':profile},Employer)
                     observed={x['url'] for x in profile['companies']}
                     outcome='current_employer_unclear';company={};candidate=None
                     if selected.company_url in observed:
@@ -167,7 +178,7 @@ class Discovery:
                             candidate=self.ask('Qualify this person against ALL brief criteria. Current role/employer must be explicit in their own profile. '
                                 'The company page must establish sector. Location must be on the person profile. '
                                 'Quote exact contiguous passages from supplied text. current_role_quote must include the exact role AND employer and current employment evidence. '
-                                'Use the profile heading as name. If evidence is missing or past-only, qualified=false. Do not infer from recommendations or posts.',
+                                'An explicit role/employer in the supplied headline is acceptable self-reported current-role evidence; quote the entire headline exactly. Never treat former/ex roles as current. Use the profile heading as name. If evidence is missing or past-only, qualified=false. Do not infer from recommendations or posts.',
                                 {'brief':plan['prompt'],'profile':profile,'company':company},Candidate)
                             guard()
                             outcome=self.stage(url,candidate,profile,company,run_id)

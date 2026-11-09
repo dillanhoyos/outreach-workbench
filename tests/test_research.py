@@ -89,3 +89,39 @@ def test_fabricated_or_past_evidence_rejected(tmp_path,field,value):
     'https://www.linkedin.com/messaging/','https://www.linkedin.com:8443/in/example/'])
 def test_research_navigation_rejects_other_hosts_actions_and_ports(url):
     with pytest.raises(ValueError):research_url(url,'profile')
+
+
+def test_explicit_profile_headline_is_reviewable_but_former_role_is_not(tmp_path):
+    from workbench.research import Candidate
+    store,browser,engine,plan=setup(tmp_path)
+    profile=browser.profile(PROFILE);company=browser.company(COMPANY)
+    quote='Accounting Director at Fictional Roads'
+    profile['headline']=quote;profile['text']=quote+' '+PERSON['location_quote']
+    candidate=Candidate(**{**PERSON,'current_role_quote':quote})
+    assert engine.stage(PROFILE,candidate,profile,company,'fixture')=='staged_for_review'
+    assert json.loads(store.list('leads')[0]['evidence'])['role_source']=='profile_headline'
+    profile['headline']='Former '+quote;profile['text']=profile['headline']+' '+PERSON['location_quote']
+    candidate.current_role_quote=profile['headline']
+    assert engine.stage('https://www.linkedin.com/in/fictional-former/',candidate,profile,company,'fixture')=='insufficient_evidence'
+
+
+def test_missing_company_skips_model_and_headline_match_skips_selection(tmp_path):
+    calls=[]
+    def tracked(*args):
+        calls.append(args[3]['title']);return model(*args)
+    store,browser,engine,plan=setup(tmp_path,reasoner=tracked)
+    original=browser.profile
+    def no_company(url):
+        result=original(url);result['companies']=[];return result
+    browser.profile=no_company
+    engine.run(plan['id'],True)
+    assert calls==['Plan']
+
+    store2,browser2,engine2,plan2=setup(tmp_path/'direct',reasoner=tracked)
+    original2=browser2.profile
+    def explicit(url):
+        result=original2(url);result['headline']=PERSON['current_role_quote'];return result
+    browser2.profile=explicit
+    calls.clear()
+    result=engine2.run(plan2['id'],True)
+    assert calls==['Candidate'] and result['staged']==1

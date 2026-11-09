@@ -40,7 +40,9 @@ are interrupted on cancellation. Rate limits and account challenges stop the run
 provider retries are disabled for research model calls. No account rotation.
 
 The candidate needs exact source quotations for current role/employer (with an
-explicit current-employment marker), location and the employer's business sector.
+explicit current-employment marker, or an exact role/employer headline labeled as
+self-reported evidence), location and the employer's business sector. Former-role
+headlines are excluded. LinkedIn h1 and h2 profile layouts are supported.
 Quotations are checked against captured page text and the profile name against
 its heading. Missing, past-only or conflicting evidence remains in the research
 log, not as a sendable contact. Staged candidates always have `review` status.
@@ -81,3 +83,10 @@ before scaling. The developer's host login is never copied into the app.
 Official references: [Codex app-server](https://learn.chatgpt.com/docs/app-server),
 [permissions](https://learn.chatgpt.com/docs/permissions) and
 [configuration](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+For speed, profiles with no observed employer links skip model selection. An
+unambiguous company link matching the headline skips employer selection, but
+still requires full model qualification and source checks. Jev currently prioritizes
+one observed profile per search; Selenium performs navigation. Activity text is
+excluded from qualification. An activity link may supply an employer URL only when
+its complete label occurs in the person’s own headline; it is not role evidence.

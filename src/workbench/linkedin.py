@@ -100,7 +100,7 @@ class LinkedInBrowser:
                 raise ProviderError('LinkedIn reported a restriction. Work stopped; review it manually before continuing.')
         # A real rate-limit response is never hidden behind a successful page load.
         import json
-        for entry in d.get_log('performance'):
+        for entry in d.execute(Command.GET_LOG, {'type':'performance'})['value']:
             try:m=json.loads(entry['message'])['message']
             except (KeyError,ValueError):continue
             response=m.get('params',{}).get('response',{})

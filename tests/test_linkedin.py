@@ -10,7 +10,9 @@ class Driver:
     current_url='https://www.linkedin.com/feed/'
     def __init__(self,text='',status=200):self.text=text;self.status=status
     def find_element(self,*args):return SimpleNamespace(text=self.text)
-    def get_log(self,kind):return [{'message':json.dumps({'message':{'method':'Network.responseReceived','params':{'response':{'url':'https://www.linkedin.com/feed/','status':self.status}}}})}]
+    def execute(self,command,params):
+        assert command == 'getLog' and params == {'type':'performance'}
+        return {'value':[{'message':json.dumps({'message':{'method':'Network.responseReceived','params':{'response':{'url':'https://www.linkedin.com/feed/','status':self.status}}}})}]}
 
 
 def browser(tmp_path,driver):

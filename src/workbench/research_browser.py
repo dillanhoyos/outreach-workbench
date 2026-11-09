@@ -34,18 +34,35 @@ class ResearchBrowser:
         self.linkedin.check()
         # Capture only main professional content. Sidebar suggestions and activity
         # must not be mistaken for the person's employer or experience.
-        data = driver.execute_script('''
+        data = driver.execute_script(r'''
           const main = document.querySelector('main');
-          const links = [...main.querySelectorAll('a[href]')].filter(a=>a.getClientRects().length)
+          const heading = main.querySelector('h1') || main.querySelector('section h2');
+          const top = heading?.closest('section');
+          const headline = top?.querySelector('.text-body-medium')?.innerText ||
+            [...(top?.querySelectorAll('p') || [])].find(e=>e.getClientRects().length &&
+              e.innerText.trim() && !/^(?:[·\s]*(?:1st|2nd|3rd|3rd\+)|he\/him|she\/her|they\/them)$/i.test(e.innerText.trim()))?.innerText || '';
+          const excluded = [...main.querySelectorAll('aside,nav,footer,section')].filter(e=>
+            e.matches('aside,nav,footer') || e.querySelector('#activity,#recommendations,#interests,#people-also-viewed') ||
+            /^(Activity|Actividad|Recommendations|Recomendaciones|Interests|Intereses|More profiles for you|Explore Premium profiles)$/i.test(
+              e.querySelector('h2,h3')?.innerText.trim() || ''));
+          const links = [...main.querySelectorAll('a[href]')].filter(a=>a.getClientRects().length && !excluded.some(e=>e.contains(a)))
             .map(a=>({url:a.href,label:(a.innerText||a.getAttribute('aria-label')||'').slice(0,300)}));
           let text = main.innerText;
-          main.querySelectorAll('aside,nav,section').forEach(e=>{
-            if(e.matches('aside,nav') || e.querySelector('#activity,#recommendations,#interests,#people-also-viewed'))
-              text=text.replace(e.innerText,'');
-          });
-          return {title:main.querySelector('h1')?.innerText||'',text,links};
+          excluded.forEach(e=>{text=text.replace(e.innerText,'');});
+          // A post may expose the employer URL, but is never role evidence.
+          // Only admit company links whose full label occurs in the profile headline.
+          const clean=s=>s.toLocaleLowerCase().replace(/\s+/g,' ').trim();
+          if (location.pathname.startsWith('/in/') && headline) {
+            for (const a of main.querySelectorAll('a[href*="/company/"]')) {
+              const label=a.innerText.trim();
+              if (a.getClientRects().length && label.length>2 && clean(headline).includes(clean(label)))
+                links.push({url:a.href,label:label.slice(0,300)});
+            }
+          }
+          return {title:heading?.innerText||'',headline,text,links};
         ''')
         return {'url':driver.current_url,'title':data['title'][:200],
+                'headline':re.sub(r'\s+',' ',data['headline']).strip()[:600],
                 'text':re.sub(r'\s+',' ',data['text']).strip()[:18000], 'links':data['links'][:120]}
 
     def search(self, query):
