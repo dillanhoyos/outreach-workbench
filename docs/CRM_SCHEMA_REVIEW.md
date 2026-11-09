@@ -1,7 +1,8 @@
 # CRM schema review and proposed next model
 
-This is a proposal, not an applied database migration. Reviewed against
-`store.py`, `research.py`, and the combined `/api/records/leads` view.
+Implemented in `crm.py`, with transactional compatibility in `store.py` and
+`research.py`. The original review below explains the design. The migration keeps
+legacy delivery tables for idempotency and existing exports.
 
 ## What exists
 
@@ -77,3 +78,41 @@ assessment, outreach, or exclusion history.
 Migration needs a backup and repeatable backfill tests. No new external CRM,
 Google Sheets connection or authentication dependency is needed: SQLite can hold
 this model locally.
+
+## Implemented migration and operation
+
+Startup creates a private SQLite backup named `workbench.pre-crm-v1.sqlite` beside
+an existing database, before the new schema is installed. Backup uses SQLite's
+backup API, including committed WAL data. Backfill markers make restarts repeatable.
+The app data volume, account credentials, and existing IDs are preserved.
+
+The normalized tables are `crm_people`, `crm_companies`, `crm_employment`,
+`crm_campaigns`, `crm_assessments`, `crm_evidence`, `crm_actions`,
+`crm_conversations`, `crm_messages`, `crm_exclusions`, `crm_runs`, `crm_visits`,
+and `crm_run_events`. Legacy leads, deliveries and replies remain compatibility
+records; application writes update both representations in the same transaction.
+Direct SQL changes to legacy tables are not a supported write interface.
+
+Audience text identifies an immutable campaign criteria version. Editing the
+brief creates a new campaign identity rather than changing old assessments.
+Imported historical summaries keep their original audience, while unavailable
+historical facts remain unknown. Existing unassigned lead assessments remain
+visible in history. Company identities initially use normalized names; domains,
+function, seniority and accelerator fields remain nullable unless explicitly
+populated. No automatic subsidiary/domain merge is performed.
+
+The CRM displays campaign-specific fit separately from approval and delivery.
+Select a campaign to filter its latest assessments. Contact details include
+source quotations and messages. `GET /api/crm/report` and the Campaign results
+panel show all-time cohorts with explicit denominators; acceptance and positive
+reply classification remain unknown unless observed/classified in future workflows.
+
+For a changed audience, previously rejected profiles with complete evidence
+captured within 30 days can be reassessed without revisiting LinkedIn. Existing
+qualified contacts remain excluded from new-lead discovery. Older/incomplete
+captures need an explicit recheck. Clearing search history retains normalized
+assessments, evidence, outreach records and the durable run audit.
+
+If migration fails, stop the app before restoring the backup into the data volume.
+Keep the backup until the migrated CRM has been verified; restoring it discards
+changes made after the backup, so first retain a copy of the current database.

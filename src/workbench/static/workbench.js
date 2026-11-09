@@ -67,7 +67,7 @@ async function refresh() {
   if (refreshing) return;
   refreshing = true;
   try {
-    const [status, leads, replies, jobs, authState, discoveryState] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs', 'connections', 'discovery/state'].map(p => api(p)));
+    const [status, leads, replies, jobs, authState, discoveryState, reports] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs', 'connections', 'discovery/state','crm/report'].map(p => api(p)));
     connections = authState; researchState = discoveryState;
     workspace = status;
     $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
@@ -100,12 +100,16 @@ async function refresh() {
     renderDecisions();
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
-    if (researchState.plan) $('plan-summary').textContent = researchState.plan.summary;
+    if (researchState.plan) {
+      $('plan-summary').textContent = researchState.plan.summary;
+      $('plan-metrics').replaceChildren();
+      for(const label of [researchState.plan.limit+' people',researchState.plan.max_minutes+' minutes',researchState.plan.max_profiles ? researchState.plan.max_profiles+' visits max' : 'No visit cap']) {const span=document.createElement('span');span.textContent=label;$('plan-metrics').append(span);}
+    }
     if (researchState.plan) $('research-plan-text').textContent = 'Two web workers → one LinkedIn worker\n\n' + 'Recheck prior evidence failures: '+Boolean(researchState.plan.recheck_failed)+'\nSpecific profile: '+(researchState.plan.profile_url || 'None')+'\n\nYour brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + (researchState.plan.max_profiles || 'Time limit only') + ' · Max minutes: ' + researchState.plan.max_minutes;
     $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : researchState.plan ? 'Your plan is prepared. Complete the step shown beside Start research.' : 'No research has started yet. Prepare a plan to begin.';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
-    crmRecords=leads;renderCrm(leads,status);
+    crmReports=reports;crmRecords=leads;renderCrm(leads,status);
     $('replies').textContent = replies.length ? replies.map(r => (leads.find(l => l.id === r.lead_id)?.name || r.lead_id) + ' · ' + r.received + '\n' + r.body).join('\n\n') : 'No replies recorded yet.';
     $('jobs').textContent = jobs.length ? jobs.slice().reverse().map(j => j.kind + ' · ' + j.status + ' · ' + j.created + '\n' + j.result).join('\n\n') : 'No jobs yet.';
     renderWorkspace();
@@ -211,7 +215,7 @@ $('discovery-prompt').oninput = controls;
 $('discovery-limit').oninput = controls;
 $('discovery-minutes').oninput = controls;
 $('discovery-visits').oninput = controls;
-$('research-adjust-time').onclick = () => { $('research-brief').open=true; $('discovery-minutes').focus(); $('discovery-minutes').scrollIntoView({block:'center',behavior:'smooth'}); };
+$('research-adjust-time').onclick = () => { $('research-brief').open=true; $('research-options').open=true; $('discovery-minutes').focus(); $('discovery-minutes').scrollIntoView({block:'center',behavior:'smooth'}); };
 $('research-start').onclick = () => run(async () => {
   const plan=researchState?.plan;
   if (!plan) throw Error('Prepare a research plan first.');
@@ -284,7 +288,7 @@ function renderWorkspace() {
   // Collapse the original brief once per new plan, without fighting user edits.
   const planId = researchState?.plan?.id;
   if (planId && $('research-brief').dataset.planId !== planId) {
-    if (!$('discovery-prompt').value.trim()) {
+    if (!$('research-brief').dataset.planId || !$('discovery-prompt').value.trim()) {
       $('discovery-prompt').value = researchState.plan.prompt; $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || '';
       $('discovery-limit').value = researchState.plan.limit; $('discovery-minutes').value = researchState.plan.max_minutes ?? 15; $('discovery-visits').value = researchState.plan.max_profiles ?? 0;
     }
@@ -351,7 +355,7 @@ $('brief-reset').onclick=()=>run(async()=>{
 
 function decisionSummary(event) {
   const d=JSON.parse(event.detail || '{}');
-  const names={web_worker_started:'Web worker started',web_worker_finished:'Web worker finished',web_worker_canceled:'Web worker stopped',filtered_seen:'Filtering previously seen profiles',adapting_search:'Trying new search queries',expanding_web:'Finding new companies on the web',web_fallback:'Checking missing evidence on the web',rechecking:'Rechecking prior evidence failure',web_search:'Searching the web',web_source:'Reading primary source',web_shortlist:'Web shortlist ready',web_excluded:'Excluded before LinkedIn',started:'Run started',checking_browser:'Checking browser',searching:'Searching LinkedIn',search:'Search results',ranking:'Prioritizing with Jev',prioritized:'First profile in research order',visiting:'Opening profile',selecting_employer:'Finding the current employer',employer_selected:'Checking company',qualifying:'Evaluating fit with Codex',staged_for_review:'Saved for your review',insufficient_evidence:'Skipped: evidence did not qualify',current_employer_unclear:'Skipped: employer unclear',company_replied_or_held:'Skipped: company excluded',previously_visited_or_reserved:'Skipped: previously visited',known_contact:'Skipped: already in CRM',own_profile:'Skipped: your own profile',duplicate:'Skipped: duplicate',stopped:'Research stopped',finished:'Run finished'};
+  const names={reassessing_cached:'Checking saved evidence for this audience',web_worker_started:'Web worker started',web_worker_finished:'Web worker finished',web_worker_canceled:'Web worker stopped',filtered_seen:'Filtering previously seen profiles',adapting_search:'Trying new search queries',expanding_web:'Finding new companies on the web',web_fallback:'Checking missing evidence on the web',rechecking:'Rechecking prior evidence failure',web_search:'Searching the web',web_source:'Reading primary source',web_shortlist:'Web shortlist ready',web_excluded:'Excluded before LinkedIn',started:'Run started',checking_browser:'Checking browser',searching:'Searching LinkedIn',search:'Search results',ranking:'Prioritizing with Jev',prioritized:'First profile in research order',visiting:'Opening profile',selecting_employer:'Finding the current employer',employer_selected:'Checking company',qualifying:'Evaluating fit with Codex',staged_for_review:'Saved for your review',insufficient_evidence:'Skipped: evidence did not qualify',current_employer_unclear:'Skipped: employer unclear',company_replied_or_held:'Skipped: company excluded',previously_visited_or_reserved:'Skipped: previously visited',known_contact:'Skipped: already in CRM',own_profile:'Skipped: your own profile',duplicate:'Skipped: duplicate',stopped:'Research stopped',finished:'Run finished'};
   let text=d.reason || '';
   if(event.kind==='started')text='Target: '+d.plan.limit+' candidates. '+d.plan.summary;
   if(event.kind==='search')text=d.observed_profiles+' profile links observed for '+d.query;
@@ -363,6 +367,8 @@ function decisionSummary(event) {
 }
 function renderDecisions() {
   const events=researchState?.events || [];
+  const activity=$('research-decisions');
+  if(activity.dataset.active!==String(Boolean(researchState?.active))){activity.open=Boolean(researchState?.active);activity.dataset.active=String(Boolean(researchState?.active));}
   $('research-decisions').hidden=!events.length;
   if(!events.length)return;
   const revision=events[0].id+':'+Boolean(researchState.active);
@@ -393,7 +399,7 @@ $('discovery-recheck').onchange=controls;
 $('discovery-profile').oninput=controls;
 
 $('clear-search-history').onclick=()=>run(async()=>{
-  if(!confirm('Clear all discovery visits, skipped-profile history and research run logs? CRM profiles and visit tags will remain, so duplicates will still be skipped. Use Recheck to deliberately revisit unqualified profiles. Contacts, replies, outreach history, connections and your current brief and plan will be kept.'))return;
+  if(!confirm('Clear temporary discovery logs? CRM profiles, campaign assessments, source evidence and audit history will remain, so duplicates will still be skipped. Use Recheck to deliberately revisit profiles. Contacts, replies, outreach history, connections and your current plan will be kept.'))return;
   $('clear-search-history').disabled=true;
   try {
     const result=await api('discovery/history/clear',{confirm:true});
@@ -405,9 +411,10 @@ $('clear-search-history').onclick=()=>run(async()=>{
   } finally {controls();}
 });
 
-let crmRecords=[];
+let crmRecords=[],crmReports=[];
 const crmFilterLabels={all:'All profiles',qualified:'Qualified',not_applicable:'Visited · not applicable',missing_evidence:'Missing evidence',other:'Other / interrupted'};
 function crmCategory(lead) {
+  if(lead.qualification) return ({qualified:'qualified',not_applicable:'not_applicable',missing_evidence:'missing_evidence'})[lead.qualification] || 'other';
   if(lead.status==='not_applicable')return 'not_applicable';
   if(lead.status==='missing_evidence')return 'missing_evidence';
   if(['review','approved','confirmed','simulated','replied','skipped','blocked','uncertain'].includes(lead.status))return 'qualified';
@@ -415,30 +422,48 @@ function crmCategory(lead) {
 }
 function renderCrm(leads,status) {
   const selection=$('crm-filter').value;
+  const campaignSelect=$('crm-campaign'),selectedCampaign=campaignSelect.value;
+  const campaigns=new Map();for(const lead of leads)for(const a of lead.assessments || [])if(a.campaign_id)campaigns.set(a.campaign_id,a.campaign_name);
+  campaignSelect.replaceChildren(new Option('All campaigns',''));
+  for(const [id,name] of campaigns)campaignSelect.add(new Option(name,id));
+  campaignSelect.value=campaigns.has(selectedCampaign)?selectedCampaign:'';
+  if(campaignSelect.value)leads=leads.filter(l=>(l.assessments || []).some(a=>a.campaign_id===campaignSelect.value)).map(l=>{const a=l.assessments.find(a=>a.campaign_id===campaignSelect.value);return {...l,qualification:a.qualification,campaign_id:a.campaign_id,campaign:a.campaign_name,reason:a.explanation};});
   const counts={all:leads.length,qualified:0,not_applicable:0,missing_evidence:0,other:0};
   for(const lead of leads)counts[crmCategory(lead)]++;
   for(const option of $('crm-filter').options)option.textContent=crmFilterLabels[option.value]+' ('+counts[option.value]+')';
   const visible=selection==='all'?leads:leads.filter(lead=>crmCategory(lead)===selection);
+  $('crm-report').replaceChildren();
+  const table=document.createElement('table'),head=table.createTHead().insertRow();
+  for(const name of ['Campaign','Researched','Qualified','Attempted','Sent','Replied','Reply rate']) {const cell=document.createElement('th');cell.textContent=name;head.append(cell);}
+  const body=table.createTBody();
+  for(const r of crmReports || []) {if(campaignSelect.value && r.id!==campaignSelect.value)continue;const row=body.insertRow();for(const value of [r.name,r.researched,r.qualified,r.attempted,r.sent,r.replied_after_send,r.reply_rate===null?'—':Math.round(r.reply_rate*100)+'%'])row.insertCell().textContent=value;}
+  $('crm-report').append(table);
   $('crm-filter-count').textContent='Showing '+visible.length+' of '+leads.length+' profiles';
     $('leads').replaceChildren();
-    if (!visible.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 4; cell.className = 'empty'; cell.textContent = leads.length ? 'No profiles match this filter. Choose All profiles to see your CRM.' : 'No candidates yet. Start with Find leads.'; }
+    if (!visible.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 6; cell.className = 'empty'; cell.textContent = leads.length ? 'No profiles match this filter. Choose All profiles to see your CRM.' : 'No candidates yet. Start with Find leads.'; }
     for (const lead of visible) {
       const tr = document.createElement('tr');
-      for (const value of [lead.name, (lead.company || 'Company not confirmed') + ' / ' + (lead.role || 'Role not confirmed'), ({not_applicable:'Not qualified for this audience',missing_evidence:'Missing evidence',visit_interrupted:'Visit interrupted',company_excluded:'Company excluded'})[lead.status] || lead.status]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
-      if(lead.visited_at) {
+      for (const value of [lead.name, (lead.company || 'Company not confirmed') + ' / ' + (lead.role || 'Role not confirmed'),
+        (lead.campaign || 'Unassigned')+'\n'+(lead.qualification || lead.status).replaceAll('_',' '),
+        (lead.outreach_status || 'not_contacted').replaceAll('_',' ')+' · '+(lead.approval || 'review'),
+        'Verified: '+(lead.last_verified_at?.slice(0,10) || 'Unknown')+'\nContact: '+(lead.last_contact_at?.slice(0,10) || 'None')+'\nReply: '+(lead.last_reply_at?.slice(0,10) || 'None')]) { const td = document.createElement('td'); td.textContent = value; td.style.whiteSpace='pre-line';tr.append(td); }
+      if(lead.visited_at || lead.assessments?.length) {
         const details=document.createElement('details'),summary=document.createElement('summary');
         summary.textContent=lead.visited?'Visited · research details':'Visit attempted · research details';details.append(summary);
         const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent='Visited: '+lead.visited_at+'\nAudience: '+(lead.audience || 'Prior audience unavailable')+'\nDecision: '+lead.reason;details.append(text);
         for(const entry of (lead.research_history || []).slice(0,-1)){const p=document.createElement('p');p.textContent=entry.visited_at+' · '+entry.status+' · '+entry.audience+' · '+entry.reason;details.append(p);}
-        tr.firstChild.append(details);
+        for(const a of lead.assessments || []){const p=document.createElement('p');p.textContent=(a.campaign_name || 'Unassigned')+' · '+a.qualification+' · '+a.explanation;details.append(p);}
+        for(const source of lead.sources || []){const p=document.createElement('p');p.textContent=source.fact_type+': “'+source.quotation+'” · '+source.captured_at;details.append(p);try{const u=new URL(source.source_url);if(u.protocol==='https:' && !u.username && !u.password){const a=document.createElement('a');a.href=u.href;a.textContent='Source ↗';a.target='_blank';a.rel='noopener noreferrer';details.append(a);}}catch(_){}}
+        for(const m of lead.messages || []){const p=document.createElement('p');p.textContent=m.direction+' · '+m.occurred_at+' · '+m.body;details.append(p);}
+        details.className='crm-detail';tr.firstChild.append(details);
       }
       const td = document.createElement('td'), button = document.createElement('button');
       button.textContent = lead.status === 'approved' ? 'Send approved note' : 'Review';
-      button.disabled = status.busy || !['review', 'approved'].includes(lead.status);
+      button.disabled = status.busy || (lead.qualification && lead.qualification!=='qualified') || !['review', 'approved'].includes(lead.status);
       button.onclick = () => run(async () => {
         if (lead.status === 'approved') {
           if (confirm('Send this reviewed invitation to ' + lead.name + '?\n\n' + lead.note + '\n\n' + (workspace.mode === 'demo' ? 'Demo: simulated only.' : 'This sends a real invitation.'))) await api('outreach', { lead_ids: [lead.id], confirm: true });
-        } else { const note = prompt('Source evidence: ' + lead.evidence + '\n\nReview the profile and enter a note (max 200 characters).'); if (note) await api('leads/' + lead.id + '/approve', { note }); }
+        } else { const note = prompt('Source evidence: ' + lead.evidence + '\n\nReview the profile and enter a note (max 200 characters).'); if (note) await api('leads/' + lead.id + '/approve', { note, campaign_id:lead.campaign_id || null }); }
         await refresh();
       });
       const a = document.createElement('a'); a.href = lead.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Profile ↗'; td.append(button, a); tr.append(td); $('leads').append(tr);
@@ -453,3 +478,5 @@ $('crm-filter').onchange=()=>{
   try{sessionStorage.setItem('workbench-crm-filter',$('crm-filter').value);}catch(_){}
   if(workspace)renderCrm(crmRecords,workspace);
 };
+
+$('crm-campaign').onchange=()=>{if(workspace)renderCrm(crmRecords,workspace);};

@@ -64,6 +64,9 @@ class Discovery:
         for visit in visits:
             self.remember(visit['url'],visit['state'],json.loads(visit['evidence']),visit['run_id'],starts.get(visit['run_id'],''),visit['created'])
 
+        from .crm import backfill
+        with store.db() as db:backfill(db,research=True)
+
     def remember(self,url,state,evidence,run_id,brief,visited_at=None):
         profile=evidence.get('profile') or {};assessment=evidence.get('assessment') or {}
         status={'reserved':'visit_interrupted','current_employer_unclear':'missing_evidence',
@@ -74,7 +77,7 @@ class Discovery:
             'company':assessment.get('company') or (evidence.get('company') or {}).get('title',''),
             'role':assessment.get('role',''),'country':assessment.get('country',''),'status':status,'note':'',
             'visit_state':state,'run_id':run_id,'visited_at':visited_at or now(),'created':visited_at or now(),
-            'audience':brief,'reason':assessment.get('reason') or state.replace('_',' '),
+            'assessed_at':now(),'audience':brief,'reason':assessment.get('reason') or state.replace('_',' '),
             'evidence':json.dumps(evidence,ensure_ascii=False),'visited':bool(profile)}
         with self.store.db() as db:
             old=db.execute('SELECT record FROM crm_research_profiles WHERE profile_key=?',(record['profile_key'],)).fetchone()
@@ -84,6 +87,11 @@ class Discovery:
             record['research_history']=history
             db.execute('INSERT INTO crm_research_profiles VALUES(?,?) ON CONFLICT(profile_key) DO UPDATE SET record=excluded.record',
                        (record['profile_key'],json.dumps(record,ensure_ascii=False)))
+            from .crm import assessment
+            assessment(db,record)
+            from .crm import sync_lead
+            lead=db.execute("SELECT id FROM leads WHERE profile_key=?",(record["profile_key"],)).fetchone()
+            if lead:sync_lead(db,lead["id"])
 
     def crm_records(self):
         leads=self.store.list('leads')
@@ -93,7 +101,8 @@ class Discovery:
         for lead in leads:
             extra=visited.pop(lead['profile_key'],{})
             result.append({**extra,**lead})
-        return result+list(visited.values())
+        from .crm import enrich
+        with self.store.db() as db:return enrich(db,result+list(visited.values()))
 
     def previous_visit(self,db,key):
         row=db.execute('SELECT * FROM research_visits WHERE profile_key=?',(key,)).fetchone()
@@ -107,6 +116,8 @@ class Discovery:
         with self.store.db() as db:
             db.execute('INSERT INTO research_events(run_id,kind,detail,created) VALUES(?,?,?,?)',
                        (run_id,kind,json.dumps(detail,ensure_ascii=False),now()))
+            from .crm import record_event
+            record_event(db,run_id,kind,detail,now())
 
     def state(self):
         with self.store.db() as db:
@@ -183,6 +194,9 @@ class Discovery:
         return result
 
     def blocked(self, company, db):
+        from .crm import excluded
+        companies=db.execute('SELECT id,name FROM crm_companies').fetchall()
+        if any(fold(c['name'])==fold(company) and excluded(db,company_id=c['id']) for c in companies):return True
         key=fold(company)
         if any(fold(r['company'])==key for r in db.execute('SELECT company FROM holds')): return True
         # Conservative: any recorded reply protects that exact employer. Never
@@ -232,9 +246,15 @@ class Discovery:
             'sector_quote':d.sector_quote,'company_criteria_quotes':company.get('company_criteria_quotes',[]),'company_assessment':company.get('company_assessment',''),'assessment':d.reason,'captured_at':now()},ensure_ascii=False)
         with self.store.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            if self.blocked(d.company,db): return 'company_replied_or_held'
+            from .crm import excluded
+            known=db.execute('SELECT id FROM crm_people WHERE profile_key=?',(profile_key(url),)).fetchone()
+            if self.blocked(d.company,db) or (known and excluded(db,person_id=known['id'])): return 'company_replied_or_held'
             added=db.execute('INSERT OR IGNORE INTO leads(id,profile_key,name,company,role,url,country,evidence,created) VALUES(?,?,?,?,?,?,?,?,?)',
                 (uuid.uuid4().hex,profile_key(url),d.name,d.company,d.role,url,d.country,evidence,now())).rowcount
+            if added:
+                from .crm import sync_lead
+                lead=db.execute('SELECT id FROM leads WHERE profile_key=?',(profile_key(url),)).fetchone()
+                sync_lead(db,lead['id'])
         return 'staged_for_review' if added else 'duplicate'
 
     def qualify(self,plan,profile,company):
@@ -262,6 +282,33 @@ class Discovery:
         removed=len(links)-len(fresh)
         if removed:self.event(run_id,'filtered_seen',{'reason':f'Excluded {removed} known, previously visited or duplicate profiles before ranking. {len(fresh)} candidates remain.'})
         return fresh
+
+    def reassess_cached(self,plan,run_id,report,guard):
+        """Reuse recent captured evidence for a new audience, without a LinkedIn visit."""
+        from datetime import datetime, timezone, timedelta
+        from .crm import ident
+        campaign_id=ident('campaign',plan['prompt'].strip())
+        with self.store.db() as db:
+            records=[json.loads(r[0]) for r in db.execute('SELECT record FROM crm_research_profiles')]
+        for old in records:
+            guard()
+            if report['staged']>=plan['limit']:return
+            if not old.get('audience') or old['audience']==plan['prompt'] or not old.get('visited'):continue
+            with self.store.db() as db:
+                if db.execute('SELECT 1 FROM leads WHERE profile_key=?',(old['profile_key'],)).fetchone():continue
+                if db.execute('SELECT 1 FROM crm_assessments a JOIN crm_people p ON p.id=a.person_id WHERE p.profile_key=? AND a.campaign_id=?',(old['profile_key'],campaign_id)).fetchone():continue
+            try:recent=datetime.fromisoformat(old['visited_at'])>datetime.now(timezone.utc)-timedelta(days=30)
+            except (ValueError,TypeError):recent=False
+            ev=json.loads(old['evidence']);profile=ev.get('profile');company=ev.get('company')
+            if not recent or not profile or not company:continue
+            self.event(run_id,'reassessing_cached',{'url':old['url'],'reason':'Checking recent saved evidence against this new audience; no repeat LinkedIn visit.'})
+            candidate=self.qualify(plan,profile,company);guard()
+            outcome=self.stage(old['url'],candidate,profile,company,run_id)
+            self.remember(old['url'],outcome,{**ev,'assessment':candidate.model_dump()},run_id,plan['prompt'],old['visited_at'])
+            report['cached_assessments']=report.get('cached_assessments',0)+1
+            if outcome=='staged_for_review':report['staged']+=1
+            else:report['skipped']+=1
+            self.event(run_id,outcome,{'url':old['url'],'reason':candidate.reason,'cached':True})
 
     def batches(self, plan, run_id, report, guard, seeds):
         """Continue discovery after duplicates/failed qualification, never after limits."""
@@ -326,6 +373,11 @@ class Discovery:
         try:
             guard()
             self.event(run_id,'checking_browser',{'reason':'Opening LinkedIn with the signed-in browser session.'})
+            if not plan.get('profile_url') and not plan.get('recheck_failed'):
+                self.reassess_cached(plan,run_id,report,guard)
+            if report['staged']>=plan['limit']:
+                report['reason']='target_reached'
+                return report
             self.browser.ensure_ready()
             company_cache={}
             web_links=None

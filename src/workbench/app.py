@@ -52,6 +52,7 @@ class ConnectionKey(BaseModel):
     key: SecretStr
 
 class Approval(BaseModel):
+    campaign_id: str | None = Field(default=None,max_length=100)
     note: str = Field(min_length=1,max_length=200)
 
 class SendRequest(BaseModel):
@@ -280,6 +281,11 @@ def create_app(settings=None, provider=None):
     @app.get('/api/schema',dependencies=[Depends(auth)])
     def schema():return app.openapi()
 
+    @app.get('/api/crm/report',dependencies=[Depends(auth)])
+    def crm_report():
+        from .crm import report
+        with store.db() as db:return report(db)
+
     @app.get('/api/records/{table}',dependencies=[Depends(auth)])
     def records(table:str):return research.crm_records() if table=='leads' else store.list(table)
 
@@ -344,7 +350,7 @@ def create_app(settings=None, provider=None):
 
     @app.post('/api/leads/{ident}/approve' ,dependencies=[Depends(auth)])
     def approve(ident:str,body:Approval):
-        store.approve(ident,body.note);return {'status':'approved'}
+        store.approve(ident,body.note,body.campaign_id);return {'status':'approved'}
 
     @app.post('/api/outreach',dependencies=[Depends(auth)])
     def outreach(body:SendRequest):
