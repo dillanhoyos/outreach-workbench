@@ -51,7 +51,8 @@ its heading. Missing, past-only or conflicting evidence remains in the research
 log, not as a sendable contact. Staged candidates always have `review` status.
 
 Profile URLs are durably reserved before navigation. Existing CRM contacts,
-previous visits and uncertain interrupted reservations are skipped on later runs.
+previous visits and uncertain interrupted reservations are skipped by default.
+Explicit rechecks can revisit completed evidence failures, as described below.
 There is no automatic retry or resume of an uncertain profile visit. Full bounded
 snapshots and assessments remain in the private research evidence table.
 
@@ -149,3 +150,24 @@ credentials are sent. A web source 429 stops the run without retry.
 Rebuild the app when upgrading: the pinned Codex installation includes its
 code-mode companion executable, required by hosted search. Missing or unavailable
 search now stops explicitly, rather than silently producing an empty shortlist.
+
+
+## Missing evidence and rechecks
+
+LinkedIn-first discovery now attempts a primary-source web lookup when required
+company facts are missing, or no employer URL was observed. It does not use a
+lookup to override an explicitly wrong batch or a former role. At most two profile
+fallbacks run per research job, within the same overall deadline. A matching
+primary source must link to that exact LinkedIn profile; fresh qualification still
+checks current role against the person's own LinkedIn evidence. Rate limits stop
+the run. The activity log records each fallback and the report counts them.
+
+To revisit earlier skips, open **Working brief & candidate target** and select
+**Recheck profiles previously skipped for missing evidence**, then prepare a new
+plan. This processes the most recent completed evidence failures up to the visit
+budget. Optionally paste one URL into **Specific LinkedIn profile** to inspect only
+that person. The specific profile takes precedence over the general search mode.
+Rechecks preserve the previous assessment in the private event history. They never
+revisit a saved CRM contact, a company exclusion, or an interrupted reservation,
+and a profile can be reserved only once per run. Older `insufficient_evidence`
+records may include true mismatches; fresh qualification must still reject those.

@@ -10,7 +10,7 @@ from workbench.errors import ProviderError
 PROFILE='https://www.linkedin.com/in/fictional-finance/'
 COMPANY='https://www.linkedin.com/company/fictional-roads/about/'
 PERSON={'name':'Fictional Person','company':'Fictional Roads','role':'Accounting Director','country':'Colombia',
-        'qualified':True,'current_role_quote':'Accounting Director Fictional Roads 2024 – Present',
+        'qualified':True,'needs_web_evidence':False,'current_role_quote':'Accounting Director Fictional Roads 2024 – Present',
         'location_quote':'Bogotá Colombia','sector_quote':'Fictional Roads operates road concessions',
         'reason':'Current accounting role at a road concession operator in Colombia.'}
 

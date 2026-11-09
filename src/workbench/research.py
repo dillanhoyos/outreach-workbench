@@ -33,6 +33,7 @@ class Employer(BaseModel):
 class Candidate(BaseModel):
     model_config = ConfigDict(extra='forbid')
     qualified: bool
+    needs_web_evidence: bool
     name: str = Field(max_length=200)
     company: str = Field(max_length=300)
     role: str = Field(max_length=300)
@@ -101,8 +102,11 @@ class Discovery:
         self.store.setting('research_plan',False)
         return {'message':'New research brief started. CRM records are unchanged.'}
 
-    def prepare(self, prompt, limit, web_first=False):
+    def prepare(self, prompt, limit, web_first=False, recheck_failed=False, profile_url=""):
         if not 1 <= limit <= 10: raise ProviderError('Start with 1–10 candidates per research run.')
+        if profile_url:
+            from .research_browser import research_url
+            profile_url=research_url(profile_url,'profile')
         plan=self.ask(('Plan up to six concise web searches for primary company sources, then LinkedIn confirmation. ' if web_first else 'Plan up to six concise LinkedIn people-search queries for this brief. ')+
                       'Include the sector, role families and geography. Explain the qualification criteria. '
                       'Queries are keywords, not URLs. Do not narrow accounting/risk roles to CFOs unless asked.',
@@ -110,7 +114,7 @@ class Discovery:
         if any(not q.strip() or len(q)>250 or '://' in q for q in plan.queries):
             raise ProviderError('Research plan contained an invalid search query.')
         result={'id':uuid.uuid4().hex,'prompt':prompt,'limit':limit,**plan.model_dump(),
-                'max_profiles':min(limit*5,30),'max_minutes':15,'created':now(),'web_first':web_first}
+                'max_profiles':min(limit*5,30),'max_minutes':15,'created':now(),'web_first':web_first,'recheck_failed':recheck_failed,'profile_url':profile_url}
         self.store.setting('research_plan',result)
         return result
 
@@ -122,12 +126,19 @@ class Discovery:
         return any(fold(r['company'])==key for r in db.execute(
             'SELECT DISTINCT leads.company FROM leads JOIN replies ON replies.lead_id=leads.id'))
 
-    def reserve(self, url, run_id):
+    def reserve(self, url, run_id, recheck_failed=False):
         key=profile_key(url)
         if key==(self.store.setting('account') or {}).get('key'):return 'own_profile'
         with self.store.db() as db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT 1 FROM leads WHERE profile_key=?',(key,)).fetchone(): return 'known_contact'
+            previous=db.execute('SELECT * FROM research_visits WHERE profile_key=?',(key,)).fetchone()
+            if recheck_failed and previous and previous['run_id']!=run_id and previous['state'] in ('insufficient_evidence','current_employer_unclear'):
+                # Keep the earlier evidence in the event history before replacing the reservation.
+                db.execute('INSERT INTO research_events(run_id,kind,detail,created) VALUES(?,?,?,?)',
+                    (run_id,'rechecking',json.dumps({'url':url,'previous_run':previous['run_id'],'previous_state':previous['state'],'previous_evidence':json.loads(previous['evidence']),'reason':'Rechecking a prior evidence failure with fresh sources.'}),now()))
+                db.execute("UPDATE research_visits SET run_id=?,state='reserved' WHERE profile_key=?",(run_id,key))
+                return ''
             inserted=db.execute('INSERT OR IGNORE INTO research_visits(profile_key,url,run_id,state,created) VALUES(?,?,?,\'reserved\',?)',
                                 (key,url,run_id,now())).rowcount
             return '' if inserted else 'previously_visited_or_reserved'
@@ -161,6 +172,15 @@ class Discovery:
                 (uuid.uuid4().hex,profile_key(url),d.name,d.company,d.role,url,d.country,evidence,now())).rowcount
         return 'staged_for_review' if added else 'duplicate'
 
+    def qualify(self,plan,profile,company):
+        return self.ask('Qualify this person against ALL brief criteria. Current role/employer must be explicit in their own profile. '
+            'Set needs_web_evidence=true only when required COMPANY facts such as batch or sector are missing, not when they contradict the brief or the current role is wrong. '
+            'The company page must establish sector and any batch requirement. In web-first mode it is a captured primary web source. '
+            'Location must be on the person profile when required by the brief. In web-first mode only, if geography is unrestricted, country and location_quote may both be empty. '
+            'Quote exact contiguous passages from supplied text. current_role_quote must include the exact role AND employer and current employment evidence. '
+            'An explicit role/employer in the supplied headline is acceptable self-reported current-role evidence; quote the entire headline exactly. Never treat former/ex roles as current. Use the profile heading as name. If evidence is missing or past-only, qualified=false. Do not infer from recommendations or posts.',
+            {'brief':plan['prompt'],'profile':profile,'company':company},Candidate)
+
     def run(self, plan_id, history_ack):
         plan=self.store.setting('research_plan')
         if not plan or plan['id']!=plan_id: raise ProviderError('Prepare a new research plan first.')
@@ -179,7 +199,14 @@ class Discovery:
             self.browser.ensure_ready()
             company_cache={}
             web_links=None
-            if plan.get('web_first'):
+            fallback_count=0
+            if plan.get('profile_url'):
+                web_links=[{'url':plan['profile_url'],'label':'Requested profile'}]
+            elif plan.get('recheck_failed'):
+                with self.store.db() as db:
+                    web_links=[{'url':r['url'],'label':'Prior evidence failure'} for r in db.execute("SELECT url FROM research_visits WHERE state IN ('insufficient_evidence','current_employer_unclear') ORDER BY created DESC LIMIT ?",(plan['max_profiles'],))]
+                if not web_links:web_links=None
+            if plan.get('web_first') and web_links is None:
                 from .research_web import discover
                 web_links=discover(self,plan,run_id,guard)
             for query in ([None] if web_links is not None else plan['queries']):
@@ -198,7 +225,7 @@ class Discovery:
                 for link in links:
                     guard()
                     if report['staged']>=plan['limit'] or report['visited']>=plan['max_profiles']: break
-                    url=link['url'];skip=self.reserve(url,run_id)
+                    url=link['url'];skip=self.reserve(url,run_id,plan.get('recheck_failed',False))
                     if skip:
                         report['skipped']+=1;self.event(run_id,skip,{'url':url});continue
                     report['visited']+=1
@@ -231,15 +258,25 @@ class Discovery:
                         if held: outcome='company_replied_or_held'
                         else:
                             self.event(run_id,'qualifying',{'url':url,'reason':'Codex is checking your brief against profile and company evidence. Source quotations are checked before saving.'})
-                            candidate=self.ask('Qualify this person against ALL brief criteria. Current role/employer must be explicit in their own profile. '
-                                'The company page must establish sector and any batch requirement. In web-first mode it is a captured primary web source. '
-                                'Location must be on the person profile when required by the brief. In web-first mode only, if geography is unrestricted, country and location_quote may both be empty. '
-                                'Quote exact contiguous passages from supplied text. current_role_quote must include the exact role AND employer and current employment evidence. '
-                                'An explicit role/employer in the supplied headline is acceptable self-reported current-role evidence; quote the entire headline exactly. Never treat former/ex roles as current. Use the profile heading as name. If evidence is missing or past-only, qualified=false. Do not infer from recommendations or posts.',
-                                {'brief':plan['prompt'],'profile':profile,'company':company},Candidate)
+                            candidate=self.qualify(plan,profile,company)
                             guard()
                             outcome=self.stage(url,candidate,profile,company,run_id)
-                    evidence={'profile':profile,'company':company,'assessment':candidate.model_dump() if candidate else None}
+                    linkedin_company=company if not link.get('web_company') else {}
+                    # Missing evidence is not a confirmed mismatch. Try primary web
+                    # sources, but keep role confirmation on the captured LinkedIn profile.
+                    if (outcome=='current_employer_unclear' or (outcome=='insufficient_evidence' and candidate and candidate.needs_web_evidence)) and not link.get('web_company') and fallback_count<2:
+                        guard();fallback_count+=1
+                        self.event(run_id,'web_fallback',{'url':url,'reason':'Checking primary web sources before rejecting incomplete LinkedIn evidence.'})
+                        from .research_web import discover
+                        fallback_plan={**plan,'limit':1,'prompt':plan['prompt']+'\nResearch ONLY this person and their current company: '+profile['title']+' '+url+' Headline: '+profile.get('headline','')+'. Return this exact profile_url. Do not substitute another person.', 'queries':[profile['title']+' '+profile.get('headline','')]}
+                        matches=discover(self,fallback_plan,run_id,guard)
+                        for match in matches:
+                            if profile_key(match['url'])!=profile_key(url):continue
+                            company=match['web_company']
+                            candidate=self.qualify(plan,profile,company)
+                            guard();outcome=self.stage(url,candidate,profile,company,run_id)
+                            break
+                    evidence={'profile':profile,'linkedin_company':linkedin_company,'company':company,'assessment':candidate.model_dump() if candidate else None}
                     with self.store.db() as db:
                         db.execute('UPDATE research_visits SET state=?,evidence=? WHERE profile_key=?',
                                    (outcome,json.dumps(evidence,ensure_ascii=False),profile_key(url)))
@@ -265,9 +302,12 @@ class Discovery:
             self.event(run_id,'stopped',{'reason':report['reason']})
         finally:
             with self.store.db() as db:
+                search_count=db.execute("SELECT COUNT(*) FROM research_events WHERE run_id=? AND kind='web_search' AND json_type(detail,'$.query') IS NOT NULL",(run_id,)).fetchone()[0]
                 counts={r['kind']:r['n'] for r in db.execute('SELECT kind,COUNT(*) AS n FROM research_events WHERE run_id=? GROUP BY kind',(run_id,))}
+            report['web_fallbacks']=counts.get('web_fallback',0)
+            report['rechecked']=counts.get('rechecking',0)
             report['web_first']=bool(plan.get('web_first'))
-            report['web_searches']=counts.get('web_search',0)-(1 if plan.get('web_first') and counts.get('web_search') else 0)
+            report['web_searches']=search_count
             report['web_sources']=counts.get('web_source',0)
             report['web_excluded']=counts.get('web_excluded',0)
             report['seconds']=round(time.monotonic()-start,1)

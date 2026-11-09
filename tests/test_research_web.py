@@ -112,3 +112,16 @@ def test_yc_structured_evidence_captures_only_public_company_fields(monkeypatch)
     assert 'batch: S24' in page['text'] and 'Agent monitoring' in page['text']
     assert PROFILE in page['links'] and 'DO_NOT_CAPTURE' not in page['text']
     assert 'batch: S24' not in web.fetch_source('https://example.org')['text']
+
+
+def test_yc_jobs_resolves_to_company_overview(monkeypatch):
+    from urllib.parse import urlsplit
+    urls=[]
+    def address(url):
+        urls.append(url)
+        raise ValueError('fixture stops before network')
+    monkeypatch.setattr(web,'public_address',address)
+    with pytest.raises(ValueError):web.fetch_source(SOURCE+'/jobs/a-job')
+    assert urls==[SOURCE]
+    with pytest.raises(ValueError):web.fetch_source('https://example.org/companies/example/jobs')
+    assert urls[-1]=='https://example.org/companies/example/jobs'

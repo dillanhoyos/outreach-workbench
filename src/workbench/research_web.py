@@ -79,6 +79,12 @@ class PinnedHTTPS(http.client.HTTPSConnection):
 
 
 def fetch_source(url):
+    # YC job listings omit product facts and founder links present on the company
+    # overview. Resolve directory subpages to that canonical primary source.
+    parsed=urlsplit(url)
+    match=re.fullmatch(r'/companies/([a-zA-Z0-9_-]+)(?:/.*)?',parsed.path)
+    if parsed.scheme=='https' and parsed.hostname in ('www.ycombinator.com','ycombinator.com') and match and not parsed.username and not parsed.password and parsed.port in (None,443):
+        url='https://www.ycombinator.com/companies/'+match.group(1)
     for _ in range(4):
         u,address=public_address(url);connection=PinnedHTTPS(u.hostname,address)
         try:
