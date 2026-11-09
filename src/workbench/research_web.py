@@ -115,7 +115,7 @@ def fetch_source(url):
     raise ValueError('Too many source redirects')
 
 
-def discover(engine,plan,run_id,guard):
+def discover(engine,plan,run_id,guard,shared=None):
     from .research import fold
     def event(detail):
         action=detail.get('action') or {}
@@ -134,23 +134,27 @@ def discover(engine,plan,run_id,guard):
         'Return primary company source URLs establishing the company criteria. You may leave name and profile_url empty: the controller will extract founder LinkedIn links directly from the primary page. '
         'For YC briefs prefer the official YC company directory page, which lists batch, product, founders and LinkedIn links. '
         'Do not invent URLs or use remembered facts without searching. Exclude known profiles. '
+        'Follow your assigned queries/search lane; another worker handles other queries. '
         'Do not silently broaden hard criteria. Return fewer when evidence is unavailable.',
         {'brief':plan['prompt'],'queries':plan['queries'],'shortlist_size':min(plan['limit']+2,20),'known_profiles':known},
         Shortlist.model_json_schema(),engine.stop,timeout=min(240,plan['max_minutes']*60),web=True,on_search=event)
     shortlist=Shortlist.model_validate(data);cache={};links=[];seen=set()
     for item in shortlist.prospects:
         guard()
-        if item.source_url not in cache:
+        def capture():
             engine.event(run_id,'web_source',{'url':item.source_url,'reason':'Capturing primary evidence and checking all company criteria before LinkedIn.'})
-            try:page=fetch_source(item.source_url)
-            except (ValueError,OSError,http.client.HTTPException):
-                engine.event(run_id,'web_excluded',{'url':item.source_url,'reason':'Primary source could not be captured; not sent to LinkedIn.'});continue
+            page=fetch_source(item.source_url)
             fit=engine.ask('Check ALL company-level requirements in the brief using only this captured primary source. '
                 'Exact accelerator batch must match when specified. Agent memory and monitoring count only when the brief includes them. '
                 'Ignore person-level role/location requirements here; LinkedIn will confirm those. '
                 'Provide exact contiguous quotations supporting each required company criterion. Missing or ambiguous evidence means qualified=false.',
                 {'brief':plan['prompt'],'source':page},CompanyFit)
-            cache[item.source_url]=(page,fit)
+            return page,fit
+        try:
+            if item.source_url not in cache:
+                cache[item.source_url]=shared.get(item.source_url,capture) if shared else capture()
+        except (ValueError,OSError,http.client.HTTPException):
+            engine.event(run_id,'web_excluded',{'url':item.source_url,'reason':'Primary source could not be captured; not sent to LinkedIn.'});continue
         page,fit=cache[item.source_url]
         observed=set()
         for href in page['links']:

@@ -30,3 +30,29 @@ def test_model_structured_output_and_restricted_tools(tmp_path):
 def test_model_failed_turn_never_returns_partial_answer(tmp_path):
     with pytest.raises(ProviderError,match='did not complete'):
         reason(Auth(tmp_path,'failed'),'Task',{}, {'type':'object'})
+
+
+def test_concurrent_turn_notifications_are_isolated(tmp_path):
+    import threading,json
+    from concurrent.futures import ThreadPoolExecutor
+    from workbench.codex_auth import CodexAuth
+    class Routed(CodexAuth):
+        def __init__(self):
+            super().__init__(tmp_path)
+            self.barrier=threading.Barrier(2)
+        def status(self):return {'signed_in':True}
+        def _rpc(self,method,params=None):
+            ident=str(threading.get_ident())
+            if method=='thread/start':return {'thread':{'id':ident}}
+            if method=='turn/start':
+                self.barrier.wait(timeout=5)
+                self.dispatch({'method':'item/completed','params':{'threadId':ident,'item':{'type':'agentMessage','text':json.dumps({'id':ident})}}})
+                self.dispatch({'method':'turn/completed','params':{'threadId':ident,'turn':{'id':ident,'status':'completed'}}})
+                return {'turn':{'id':ident}}
+            return {}
+    auth=Routed()
+    def run():
+        result=reason(auth,'Task',{}, {'type':'object'})
+        assert result['id']==str(threading.get_ident())
+    with ThreadPoolExecutor(max_workers=2) as pool:list(pool.map(lambda _:run(),range(2)))
+    assert not auth.subscribers

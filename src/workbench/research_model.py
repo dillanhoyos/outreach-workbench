@@ -17,7 +17,8 @@ def reason(auth, task, data, schema, stop=None, timeout=120, *, web=False, on_se
     if not auth.status()['signed_in']:
         raise ProviderError('Sign in to Codex under Your connections first.')
     events = queue.Queue()
-    auth.events = events
+    routed=hasattr(auth,"subscribe")
+    if not routed:auth.events = events
     thread_id = turn_id = None
     completed = False
     searched = False
@@ -36,6 +37,7 @@ def reason(auth, task, data, schema, stop=None, timeout=120, *, web=False, on_se
             'approvalPolicy': 'untrusted',
             'baseInstructions': INSTRUCTIONS.replace('You have no tools.', 'Use hosted web search to find primary sources. No other tools are allowed.' if web else 'You have no tools.'), 'config': config})
         thread_id = result['thread']['id']
+        if routed:auth.subscribe(thread_id,events)
         result = auth._rpc('turn/start', {'threadId': thread_id,
             'input': [{'type':'text','text': task + '\nINPUT DATA:\n' + json.dumps(data,ensure_ascii=False)}],
             'outputSchema': schema})
@@ -75,4 +77,5 @@ def reason(auth, task, data, schema, stop=None, timeout=120, *, web=False, on_se
         if thread_id:
             try: auth._rpc('thread/unsubscribe', {'threadId':thread_id})
             except ProviderError: pass
-        auth.events = None
+        if routed and thread_id:auth.unsubscribe(thread_id)
+        if not routed:auth.events = None

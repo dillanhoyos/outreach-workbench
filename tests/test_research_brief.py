@@ -1,4 +1,6 @@
 import pytest
+pytestmark = pytest.mark.usefixtures("fixture_web")
+import pytest
 from workbench.errors import ProviderError
 from workbench.research import Discovery
 from workbench.store import Store
@@ -74,7 +76,7 @@ def test_run_emits_observable_decisions_and_saved_quote(tmp_path):
     engine.run(plan['id'],True)
     events=list(reversed(engine.state()['events']))
     kinds=[event['kind'] for event in events]
-    assert kinds.index('checking_browser')<kinds.index('searching')<kinds.index('visiting')
+    assert kinds.index('checking_browser')<kinds.index('web_worker_started')<kinds.index('visiting')
     assert kinds.index('employer_selected')<kinds.index('qualifying')<kinds.index('staged_for_review')
     import json
     saved=json.loads(next(e['detail'] for e in events if e['kind']=='staged_for_review'))

@@ -7,7 +7,7 @@
 3. Use **Refine audience** to discuss roles, companies, geography and exclusions
    with the research agent. It asks focused questions and updates the editable
    **Working brief**. Conversation history stays on this installation. Start with 3 leads.
-4. Optionally select **Search the web first, then confirm on LinkedIn** in the working brief. Click **Prepare research plan**. This uses your model quota to produce search
+4. Web search always comes first. Click **Prepare research plan**. This uses your model quota to produce search
    queries and qualification criteria, but does not visit LinkedIn profiles yet.
 5. Review the plan and confirm that your local CRM contains previous contacts and
    replies, or that this is a genuinely new campaign. Google sync is an export;
@@ -30,14 +30,14 @@ Example brief:
 Codex produces structured plans and evidence assessments through the official
 app-server using this workspace's stored login. Shell, browser, external app and
 action tools are disabled for model turns; only the controller navigates LinkedIn.
-Hosted web search is enabled only for the optional web-first shortlist step.
-The controller searches LinkedIn people using the planned keywords, follows
-observed profile links and selects current-employer company links observed on the
-profile. A connected Jev key prioritizes an observed profile; it cannot invent
-URLs or qualify a person by itself. No model can click Connect or Send.
+Two web workers run hosted search and primary-source checks in parallel. Their
+completed shortlists feed one LinkedIn worker, which alone navigates the visible
+browser and saves contacts. Shared source caching and durable profile reservations
+prevent duplicate work. Model notifications are routed by thread ID. No model
+can click Connect or Send. Jev is optional; hosted web search uses Codex.
 
-Each plan starts with at most 6 search queries. General runs can expand to 18
-LinkedIn queries and two web passes, with 1–10 proposed candidates, 30 profile visits
+Each plan starts with at most 6 search queries. General runs can expand to three
+rounds of two parallel web searches, with 1–10 proposed candidates, 30 profile visits
 and a 15-minute deadline checked between actions. An in-flight browser read may
 take up to its timeout after Stop. Model steps have a 120-second deadline and
 are interrupted on cancellation. The web shortlist has a 240-second limit. Rate limits and account challenges stop the run;
@@ -115,10 +115,10 @@ the log does not invent one. Older runs have fewer event types. Full activity is
 available below the cards. No search is launched by sending a conversation message.
 
 
-## Optional web-first discovery
+## Always web-first discovery
 
-Select the checkbox before preparing a new plan. Existing plans keep their original
-mode. Codex uses hosted live web search to shortlist companies and founders; the
+This applies to new and previously saved plans; there is no mode checkbox.
+Codex uses hosted live web search to shortlist companies and founders; the
 controller independently downloads the cited primary HTML pages. It checks exact
 company-evidence quotations and requires the person's LinkedIn link to occur in
 the captured source. Wrong batches, unavailable pages, and unsupported quotations
@@ -138,10 +138,9 @@ already persist in the local data volume. No private model chain-of-thought is s
 
 Web searches and source checks appear in Research decisions; hosted searches do
 not animate the Selenium browser. The browser shows LinkedIn confirmations. Jev
-continues to prioritize LinkedIn search links in the original discovery mode; it
-is not the hosted web search provider. Both modes save only review candidates.
+is not the hosted web search provider. Research saves only review candidates.
 
-This initial web-first mode requires a primary page that establishes the company
+Web-first discovery requires a primary page that establishes the company
 criteria and links to the founder's profile (YC directory pages commonly do).
 It also reads YC’s public structured company payload. It does not yet combine
 multiple primary sources or render other JavaScript-only public sites. Public-source downloads are bounded, HTTPS-only, validate every redirect,
@@ -226,3 +225,8 @@ in the review/outreach workflow. Company exclusions and interrupted visits appea
 under Other. Filtering never changes qualification or enables outreach.
 The chosen filter survives refreshes, navigation and reloads in the same browser
 tab. Switch to All profiles to see the complete CRM again.
+
+Worker activity is labeled Web 1 / Web 2 in Research decisions. At the target,
+Stop, deadline, or a provider error, pending web work is canceled and joined before
+the run becomes idle. LinkedIn is never used concurrently. Explicit profile
+rechecks search primary web evidence before opening the requested LinkedIn profile.

@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.usefixtures("fixture_web")
 import json
 import threading
 import pytest

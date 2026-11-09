@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.usefixtures("fixture_web")
 import copy
 import json
 from types import SimpleNamespace

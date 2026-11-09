@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.usefixtures("fixture_web")
 import json
 import pytest
 from test_research import setup, model, PERSON, PROFILE, COMPANY
@@ -26,15 +28,17 @@ def test_missing_company_fact_uses_web_and_saves_only_matching_profile(tmp_path,
     assert not store.list('deliveries')
 
 
-def test_confirmed_mismatch_does_not_trigger_web(tmp_path,monkeypatch):
+def test_confirmed_mismatch_does_not_trigger_second_web_search(tmp_path,monkeypatch):
     def mismatch(*args):
         answer=model(*args)
         if args[3]['title']=='Candidate':answer.update(qualified=False,needs_web_evidence=False)
         return answer
     store,browser,engine,plan=setup(tmp_path,mismatch)
     plan['profile_url']=PROFILE;store.setting('research_plan',plan)
-    monkeypatch.setattr(research_web,'discover',lambda *a:pytest.fail('No fallback for a confirmed mismatch'))
+    calls=[]
+    monkeypatch.setattr(research_web,'discover',lambda *a:calls.append(1) or [])
     assert engine.run(plan['id'],True)['staged']==0
+    assert calls==[1]
 
 
 @pytest.mark.parametrize('state,allowed',[('insufficient_evidence',True),('current_employer_unclear',True),('reserved',False),('company_replied_or_held',False),('staged_for_review',False)])

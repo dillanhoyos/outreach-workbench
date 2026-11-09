@@ -28,9 +28,23 @@ class CodexAuth:
         self.waiters = {}
         self.sequence = 0
         self.events = None
+        self.event_lock = threading.Lock()
+        self.subscribers = {}
         self.write_lock = threading.Lock()
         self.pending = None
         self.login_message = ''
+
+    def subscribe(self,thread_id,events):
+        with self.event_lock:self.subscribers[thread_id]=events
+
+    def unsubscribe(self,thread_id):
+        with self.event_lock:self.subscribers.pop(thread_id,None)
+
+    def dispatch(self,message):
+        params=message.get('params',{})
+        thread_id=params.get('threadId')
+        with self.event_lock:subscriber=self.subscribers.get(thread_id)
+        if subscriber is not None:subscriber.put(message)
 
     def _reader(self, process):
         try:
@@ -43,6 +57,7 @@ class CodexAuth:
                         process.stdin.write(json.dumps({'id':message['id'],'error':{'code':-32601,'message':'Unsupported request'}}) + '\n')
                         process.stdin.flush()
                     continue
+                if 'method' in message:self.dispatch(message)
                 if self.events is not None and 'method' in message:
                     self.events.put(message)
                 if 'id' in message and message['id'] in self.waiters:
@@ -55,6 +70,9 @@ class CodexAuth:
                                               'Sign-in did not complete. Enable device-code login in your OpenAI settings or try again.')
         finally:
             if self.process is process:
+                with self.event_lock:subscribers=list(self.subscribers.items())
+                for thread_id,events in subscribers:
+                    events.put({'method':'error','params':{'threadId':thread_id,'error':{'message':'Codex transport closed'}}})
                 for waiter in list(self.waiters.values()):
                     waiter.put({'error': {}})
 

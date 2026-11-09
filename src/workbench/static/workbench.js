@@ -22,7 +22,7 @@ function controls() {
   $('discovery-prompt').disabled = !idle || briefSubmitting;
   $('discover').disabled = !idle || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
   const plan = researchState?.plan;
-  const changed = Boolean(plan) && (plan.prompt !== $('discovery-prompt').value.trim() || plan.limit !== Number($('discovery-limit').value) || Boolean(plan.web_first) !== $('discovery-web-first').checked || Boolean(plan.recheck_failed) !== $('discovery-recheck').checked || (plan.profile_url || '') !== $('discovery-profile').value.trim());
+  const changed = Boolean(plan) && (plan.prompt !== $('discovery-prompt').value.trim() || plan.limit !== Number($('discovery-limit').value) || Boolean(plan.recheck_failed) !== $('discovery-recheck').checked || (plan.profile_url || '') !== $('discovery-profile').value.trim());
   const blocked = !connected ? 'Connect your workspace first.'
     : researchSubmitting ? 'Starting research…'
     : workspace.busy ? 'Wait for the current job to finish.'
@@ -97,7 +97,7 @@ async function refresh() {
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
     if (researchState.plan) $('plan-summary').textContent = researchState.plan.summary;
-    if (researchState.plan) $('research-plan-text').textContent = (researchState.plan.web_first ? 'Web first → LinkedIn confirmation\n\n' : 'LinkedIn discovery\n\n') + 'Recheck prior evidence failures: '+Boolean(researchState.plan.recheck_failed)+'\nSpecific profile: '+(researchState.plan.profile_url || 'None')+'\n\nYour brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
+    if (researchState.plan) $('research-plan-text').textContent = 'Two web workers → one LinkedIn worker\n\n' + 'Recheck prior evidence failures: '+Boolean(researchState.plan.recheck_failed)+'\nSpecific profile: '+(researchState.plan.profile_url || 'None')+'\n\nYour brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
     $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : researchState.plan ? 'Your plan is prepared. Complete the step shown beside Start research.' : 'No research has started yet. Prepare a plan to begin.';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
@@ -160,7 +160,7 @@ $('check-browser').onclick = () => run(checkBrowser);
 $('open-browser').onclick = () => run(async () => { await checkBrowser(); openViewer(); });
 $('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete any LinkedIn prompts, then return to Research.'); });
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
-$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit, web_first:$('discovery-web-first').checked,recheck_failed:$('discovery-recheck').checked,profile_url:$('discovery-profile').value.trim() }); await refresh(); });
+$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit, web_first:true,recheck_failed:$('discovery-recheck').checked,profile_url:$('discovery-profile').value.trim() }); await refresh(); });
 $('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
 $('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
 setInterval(() => { if (token && workspace) run(refresh); }, 5000);
@@ -236,7 +236,7 @@ $('google-create').onclick = () => run(async()=>{await api('sheets/create',{});a
 
 $('google-sheet-form').onsubmit = event => {event.preventDefault();run(async()=>{const result=await connectionAction('connections/google/sheet',{value:$('google-sheet').value.trim()});$('google-message').textContent=result.message;});};
 
-$('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('discovery-prompt').value=researchState.plan.prompt; $('discovery-limit').value=researchState.plan.limit; $('discovery-web-first').checked=Boolean(researchState.plan.web_first); $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || ''; $('research-history').checked=false; controls(); };
+$('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('discovery-prompt').value=researchState.plan.prompt; $('discovery-limit').value=researchState.plan.limit; $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || ''; $('research-history').checked=false; controls(); };
 
 // Navigate between focused screens without recreating the browser or form state.
 const workspaceViews = ['discovery', 'browser-section', 'connections', 'outreach', 'inbox', 'activity'];
@@ -278,7 +278,7 @@ function renderWorkspace() {
   const planId = researchState?.plan?.id;
   if (planId && $('research-brief').dataset.planId !== planId) {
     if (!$('discovery-prompt').value.trim()) {
-      $('discovery-prompt').value = researchState.plan.prompt; $('discovery-web-first').checked=Boolean(researchState.plan.web_first); $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || '';
+      $('discovery-prompt').value = researchState.plan.prompt; $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || '';
       $('discovery-limit').value = researchState.plan.limit;
     }
     $('research-brief').open = false;
@@ -344,15 +344,15 @@ $('brief-reset').onclick=()=>run(async()=>{
 
 function decisionSummary(event) {
   const d=JSON.parse(event.detail || '{}');
-  const names={filtered_seen:'Filtering previously seen profiles',adapting_search:'Trying new search queries',expanding_web:'Finding new companies on the web',web_fallback:'Checking missing evidence on the web',rechecking:'Rechecking prior evidence failure',web_search:'Searching the web',web_source:'Reading primary source',web_shortlist:'Web shortlist ready',web_excluded:'Excluded before LinkedIn',started:'Run started',checking_browser:'Checking browser',searching:'Searching LinkedIn',search:'Search results',ranking:'Prioritizing with Jev',prioritized:'First profile in research order',visiting:'Opening profile',selecting_employer:'Finding the current employer',employer_selected:'Checking company',qualifying:'Evaluating fit with Codex',staged_for_review:'Saved for your review',insufficient_evidence:'Skipped: evidence did not qualify',current_employer_unclear:'Skipped: employer unclear',company_replied_or_held:'Skipped: company excluded',previously_visited_or_reserved:'Skipped: previously visited',known_contact:'Skipped: already in CRM',own_profile:'Skipped: your own profile',duplicate:'Skipped: duplicate',stopped:'Research stopped',finished:'Run finished'};
+  const names={web_worker_started:'Web worker started',web_worker_finished:'Web worker finished',web_worker_canceled:'Web worker stopped',filtered_seen:'Filtering previously seen profiles',adapting_search:'Trying new search queries',expanding_web:'Finding new companies on the web',web_fallback:'Checking missing evidence on the web',rechecking:'Rechecking prior evidence failure',web_search:'Searching the web',web_source:'Reading primary source',web_shortlist:'Web shortlist ready',web_excluded:'Excluded before LinkedIn',started:'Run started',checking_browser:'Checking browser',searching:'Searching LinkedIn',search:'Search results',ranking:'Prioritizing with Jev',prioritized:'First profile in research order',visiting:'Opening profile',selecting_employer:'Finding the current employer',employer_selected:'Checking company',qualifying:'Evaluating fit with Codex',staged_for_review:'Saved for your review',insufficient_evidence:'Skipped: evidence did not qualify',current_employer_unclear:'Skipped: employer unclear',company_replied_or_held:'Skipped: company excluded',previously_visited_or_reserved:'Skipped: previously visited',known_contact:'Skipped: already in CRM',own_profile:'Skipped: your own profile',duplicate:'Skipped: duplicate',stopped:'Research stopped',finished:'Run finished'};
   let text=d.reason || '';
   if(event.kind==='started')text='Target: '+d.plan.limit+' candidates. '+d.plan.summary;
   if(event.kind==='search')text=d.observed_profiles+' profile links observed for '+d.query;
-  if(event.kind==='finished' && d.reason==='discovery_budget_exhausted')d.reason='Search budget reached before the target. Fresh LinkedIn queries and web discovery were exhausted.';
+  if(event.kind==='finished' && d.reason==='discovery_budget_exhausted')d.reason='Search budget reached before the target. The bounded web discovery rounds were exhausted.';
   if(event.kind==='finished')text=d.staged+' saved · '+d.visited+' profiles visited · '+d.seconds+' seconds. '+(d.reason || '').replaceAll('_',' ');
   if(event.kind==='previously_visited_or_reserved')text='Already inspected or reserved by a prior run; not revisited automatically.';
   if(event.kind==='known_contact')text='This profile is already in your local CRM.';
-  return {title:names[event.kind] || event.kind.replaceAll('_',' '),text,query:d.query,url:d.url,quote:d.role_quote};
+  return {title:(d.worker ? 'Web '+d.worker+' · ' : '')+(names[event.kind] || event.kind).replaceAll('_',' '),text,query:d.query,url:d.url,quote:d.role_quote};
 }
 function renderDecisions() {
   const events=researchState?.events || [];
@@ -380,7 +380,7 @@ function renderDecisions() {
   }
 }
 
-$('discovery-web-first').onchange = controls;
+
 
 $('discovery-recheck').onchange=controls;
 $('discovery-profile').oninput=controls;

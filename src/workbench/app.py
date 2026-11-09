@@ -30,7 +30,7 @@ class DiscoveryRequest(BaseModel):
     limit: int = Field(default=3, ge=1, le=100)
     plan_id: str = Field(default="",max_length=64)
     history_ack: bool = False
-    web_first: bool = False
+    web_first: bool = True
     recheck_failed: bool = False
     profile_url: str = Field(default="",max_length=1000)
 

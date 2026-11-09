@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.usefixtures("fixture_web")
 from fastapi.testclient import TestClient
 from workbench.app import create_app
 from workbench.config import Settings
