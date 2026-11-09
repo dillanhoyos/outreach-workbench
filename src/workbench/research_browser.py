@@ -25,7 +25,7 @@ def research_url(value, kind):
 class ResearchBrowser:
     def __init__(self, linkedin): self.linkedin = linkedin
 
-    def verify(self): return self.linkedin.require_account()
+    def ensure_ready(self): return self.linkedin.require_session()
 
     def snapshot(self, url):
         self.linkedin.navigate(url)

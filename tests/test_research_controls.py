@@ -10,13 +10,13 @@ def test_start_research_explains_each_gate():
     controls=script[script.index('function controls()'):script.index('async function refresh()')]
     code='''const assert=require('node:assert/strict');
 const nodes={}; const $=id=>nodes[id]??=( {value:'',checked:false,hidden:false,disabled:false,textContent:''} );
-let workspace={mode:'live',busy:false,account:null,discovery:{ready:false,reason:'Verify your LinkedIn account.'}};
+let workspace={mode:'live',busy:false,account:null,discovery:{ready:false,reason:'Sign in to Codex.'}};
 let researchState={plan:{prompt:'Find founders',limit:3}};
 let browserState=null,browserChecking=false,connectionBusy=false,connections=null,researchSubmitting=false;
 $('discovery-prompt').value='Find founders';$('discovery-limit').value='3';$('research-history').checked=true;
 '''+controls+'''
 controls();assert.equal($('research-start').disabled,false);
-assert.match($('research-start-help').textContent,/Verify your LinkedIn/);
+assert.match($('research-start-help').textContent,/Sign in to Codex/);
 assert.equal($('research-start-browser').hidden,false);
 workspace.account={name:'Fixture'};workspace.discovery.ready=true;
 $('discovery-prompt').value='';controls();

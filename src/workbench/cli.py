@@ -14,7 +14,6 @@ def main():
     sub.add_parser('sync')
     p=sub.add_parser('import');p.add_argument('file')
     sub.add_parser('reset-browser')
-    p=sub.add_parser('verify');p.add_argument('profile_url')
     p=sub.add_parser('discover',help='Preview fictional leads in demo mode; use the UI for live plan review');p.add_argument('prompt');p.add_argument('--limit',type=int,default=10)
     p=sub.add_parser('read');p.add_argument('--limit',type=int,default=100)
     p=sub.add_parser('list');p.add_argument('table',choices=['leads','replies','deliveries','jobs','holds'])
@@ -30,7 +29,6 @@ def main():
     elif args.command=='import':
         from pathlib import Path
         route=('POST','/api/leads/import',{'leads':json.loads(Path(args.file).read_text())})
-    elif args.command=='verify':route=('POST','/api/linkedin/verify',{'profile_url':args.profile_url})
     elif args.command=='read':route=('POST','/api/replies/read',{'limit':args.limit})
     elif args.command=='list':route=('GET','/api/records/'+args.table,None)
     elif args.command=='approve':route=('POST','/api/leads/'+args.lead_id+'/approve',{'note':args.note})

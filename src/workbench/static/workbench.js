@@ -31,7 +31,7 @@ function controls() {
   $('research-start').disabled = !connected || researchSubmitting || !plan || !$('research-history').checked;
   $('research-start').textContent = plan ? 'Start reviewed plan (' + plan.limit + ')' : 'Start research';
   $('research-start-help').textContent = blocked || 'Ready. Start research will browse profiles and save candidates to your local CRM.';
-  $('research-start-browser').hidden = !connected || Boolean(workspace.account) || workspace.mode !== 'live';
+  $('research-start-browser').hidden = !connected || workspace.mode !== 'live';
   $('research-use-plan').hidden = !changed;
   $('research-use-plan').disabled = !idle;
   $('research-stop').disabled = !connected || !workspace.busy;
@@ -39,7 +39,6 @@ function controls() {
   $('check-browser').disabled = !connected || browserChecking;
   $('open-browser').disabled = !browserState?.available;
   $('login').disabled = !idle || workspace.mode !== 'live' || !browserState?.available || Boolean(workspace.linkedin_restriction);
-  $('verify').disabled = !idle || workspace.mode !== 'live' || !browserState?.available;
   $('reset-browser').disabled = !idle || workspace.mode !== 'live';
   for (const id of ['codex-login', 'codex-key-save', 'codex-check', 'codex-logout', 'codex-cancel', 'jev-save', 'jev-check', 'jev-disconnect', 'google-login', 'google-disconnect', 'google-create', 'google-select']) $(id).disabled = !idle || connectionBusy;
   if (idle && !connectionBusy && connections) {
@@ -65,15 +64,15 @@ async function refresh() {
     workspace = status;
     $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
     $('status').textContent = (status.busy ? 'A job is running. ' : 'Ready. ') + 'Daily action limit: ' + status.daily_limit + ' (UTC).';
-    $('account-name').textContent = status.account?.name || 'No account verified';
-    $('account-note').textContent = status.account ? 'Last verified account. We check this identity again before reading or sending.' : 'Connect the browser, sign in, then confirm which account will perform actions.';
+    $('account-name').textContent = 'Your signed-in browser';
+    $('account-note').textContent = 'Sign in here, then go straight to Research. No profile URL or separate verification needed.';
     $('restriction').hidden = !status.linkedin_restriction;
     $('restriction').textContent = status.linkedin_restriction ? 'LinkedIn reported a restriction. Actions are paused; review it in the browser.' : '';
     $('discover').textContent = status.mode === 'demo' ? 'Preview fictional leads' : 'Prepare research plan';
     $('discovery-state').textContent = status.mode === 'demo'
       ? 'Demo only: this previews a fixed set of fictional people. It does not interpret the prompt or search the web.'
       : status.discovery.reason || 'Ready: prepare a plan, review it, then start browser research. Candidates will be saved for review.';
-    $('research-browser-help').hidden = status.mode !== 'live' || Boolean(status.account);
+    $('research-browser-help').hidden = status.mode !== 'live';
     if (status.mode === 'live' && status.discovery.plan_ready && !status.discovery.ready) $('discovery-state').textContent = 'You can prepare your plan now. ' + status.discovery.reason;
     if (!researchRestored) {
       researchJobId = jobs.filter(job => job.kind === 'discovery').sort((a,b) => b.created.localeCompare(a.created))[0]?.id || null;
@@ -161,8 +160,7 @@ $('refresh').onclick = () => run(refresh);
 $('expand-browser').onclick = () => run(async () => { await $('browser-stage').requestFullscreen(); });
 $('check-browser').onclick = () => run(checkBrowser);
 $('open-browser').onclick = () => run(async () => { await checkBrowser(); openViewer(); });
-$('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete verification, then paste your profile URL and verify your account.'); });
-$('verify').onclick = () => run(async () => { if (!$('profile').value.trim()) throw Error('Paste your own LinkedIn profile URL first.'); await browserJob('linkedin/verify', { profile_url: $('profile').value.trim() }, 'Checking the signed-in identity…', 'Account verified. Your workspace is ready.'); });
+$('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete any LinkedIn prompts, then return to Research.'); });
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
 $('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit }); await refresh(); });
 $('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
@@ -260,7 +258,7 @@ function renderWorkspace() {
   const ready = workspace.discovery.ready;
   $('connection-summary').textContent = demo ? 'Demo workspace · fictional candidates only' :
     'Research agent: ' + (connections?.codex.signed_in ? 'connected' : 'sign-in needed') +
-    ' · LinkedIn: ' + (workspace.account?.name || 'verification needed') + ' · CRM: saved locally';
+    ' · LinkedIn: uses your browser session · CRM: saved locally';
   const link = $('next-action');
   if (workspace.busy) {
     $('next-step').textContent = 'Your workspace is working';
@@ -271,9 +269,6 @@ function renderWorkspace() {
   } else if (!demo && !connections?.codex.signed_in) {
     $('next-step').textContent = 'First, connect your research agent';
     link.textContent = 'Connect agent'; link.href = '#connections';
-  } else if (!demo && !workspace.account) {
-    $('next-step').textContent = 'Next, verify your LinkedIn account';
-    link.textContent = 'Set up LinkedIn'; link.href = '#browser-section';
   } else {
     $('next-step').textContent = ready ? 'Ready to find your next conversation' : workspace.discovery.reason;
     link.textContent = 'Go to research'; link.href = '#discovery';

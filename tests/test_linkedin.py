@@ -25,7 +25,7 @@ def test_login_blocks_and_limits_persist(tmp_path):
     d.current_url='https://www.linkedin.com/feed/';d.status=429
     with pytest.raises(ProviderError,match='429'):b.check()
     assert b.store.setting('linkedin_restriction')['reason']=='HTTP 429'
-    with pytest.raises(ProviderError,match='restriction'):b.require_account()
+    with pytest.raises(ProviderError,match='restriction'):b.require_session()
 
 
 def test_weekly_limit_no_restart(tmp_path):
@@ -34,10 +34,20 @@ def test_weekly_limit_no_restart(tmp_path):
     assert b.driver is not None
 
 
-def test_missing_identity_prevents_send(tmp_path):
-    b=browser(tmp_path,Driver())
-    with pytest.raises(ProviderError,match='Verify your LinkedIn account'):
-        b.send({'url':'https://www.linkedin.com/in/fixture'})
+def test_session_does_not_require_saved_identity(tmp_path):
+    d=Driver()
+    d.get=lambda url: setattr(d, 'current_url', url)
+    b=browser(tmp_path,d)
+    b.require_session()
+    assert b.store.setting('account') is None
+    assert d.current_url == 'https://www.linkedin.com/feed/'
+
+
+def test_logged_out_session_still_stops(tmp_path):
+    d=Driver()
+    d.get=lambda url: setattr(d, 'current_url', 'https://www.linkedin.com/login')
+    with pytest.raises(ProviderError,match='sign-in'):
+        browser(tmp_path,d).require_session()
 
 
 def test_message_timestamp_not_guessed():

@@ -16,7 +16,7 @@ PERSON={'name':'Fictional Person','company':'Fictional Roads','role':'Accounting
 
 class Browser:
     def __init__(self):self.visits=0;self.fail=False
-    def verify(self):return {'name':'Test operator'}
+    def ensure_ready(self):return {'name':'Test operator'}
     def search(self,query):return {'url':'https://www.linkedin.com/search/results/people/'},[{'url':PROFILE,'label':'Accounting Director'}]
     def profile(self,url):
         self.visits+=1

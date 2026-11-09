@@ -117,29 +117,13 @@ class LinkedInBrowser:
             self.browser().get('https://www.linkedin.com/login')
         except InvalidSessionIdException:
             raise ProviderError('Saved browser session is unavailable. Restart the browser container and use Reset browser connection; saved cookies are preserved.') from None
-        return {'message':'Open the browser viewer, sign in and complete 2FA. Then verify your profile URL.'}
+        return {'message':'Open the browser viewer, sign in and complete 2FA. Then return to Research and start your reviewed plan.'}
 
-    def verify_account(self,expected):
-        key=profile_key(expected)
-        self.navigate('https://www.linkedin.com/in/me/')
-        try:
-            WebDriverWait(self.browser(),12).until(lambda d: d.find_elements(By.CSS_SELECTOR,'main h1'))
-        except TimeoutException:
-            raise ProviderError('Could not read your profile. Complete sign-in and any verification in the browser, then try Verify my account again.') from None
-        actual=self.browser().current_url
-        if profile_key(actual)!=key:raise ProviderError('The signed-in account does not match the supplied profile URL.')
-        name=self.browser().find_element(By.CSS_SELECTOR,'main h1').text.strip()
-        if not name:raise ProviderError('Account name is missing.')
-        account={'url':actual,'key':key,'name':name}
-        self.store.setting('account',account)
-        return account
-
-    def require_account(self):
+    def require_session(self):
         if self.store.setting('linkedin_restriction'):
             raise ProviderError('A LinkedIn restriction is recorded. Review it in the browser and explicitly clear it after it is resolved.')
-        expected=self.store.setting('account')
-        if not expected:raise ProviderError('Verify your LinkedIn account in onboarding first.')
-        return self.verify_account(expected['url'])
+        # Use the current browser session; no profile URL or saved identity required.
+        self.navigate('https://www.linkedin.com/feed/')
 
     def unique_button(self,scope,labels):
         matches=[e for e in scope.find_elements(By.CSS_SELECTOR,'button,[role="button"]')
@@ -179,7 +163,7 @@ class LinkedInBrowser:
         return h.find_element(By.XPATH,'ancestor::section[1]')
 
     def send(self,lead):
-        self.require_account()
+        self.require_session()
         self.navigate(lead['url'])
         d=self.browser();card=self.topcard()
         if profile_key(d.current_url)!=profile_key(lead['url']) or normalized(card.find_element(By.CSS_SELECTOR,'h1').text)!=normalized(lead['name']):
@@ -212,7 +196,7 @@ class LinkedInBrowser:
         return {'status':'uncertain','evidence':'Send clicked once; no conclusive Pending state observed. Never automatically retry.'}
 
     def read(self,leads,limit=100):
-        self.require_account();self.navigate('https://www.linkedin.com/messaging/')
+        self.require_session();self.navigate('https://www.linkedin.com/messaging/')
         d=self.browser();known={profile_key(x['url']):x for x in leads}
         seen=set();rows=[];cases=[];checked=0;stable=0
         deadline=time.monotonic()+600

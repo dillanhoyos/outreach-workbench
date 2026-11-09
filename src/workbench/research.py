@@ -133,7 +133,7 @@ class Discovery:
             if time.monotonic()-start > plan['max_minutes']*60: raise ProviderError('Research time limit reached.')
         try:
             guard()
-            self.browser.verify()
+            self.browser.ensure_ready()
             company_cache={}
             for query in plan['queries']:
                 guard()

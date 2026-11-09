@@ -58,9 +58,6 @@ class LeadInput(BaseModel):
 class LeadImport(BaseModel):
     leads: list[LeadInput] = Field(min_length=1,max_length=100)
 
-class AccountRequest(BaseModel):
-    profile_url: str = Field(min_length=10,max_length=300)
-
 class RestrictionRequest(BaseModel):
     resolved: bool = False
 
@@ -248,7 +245,6 @@ def create_app(settings=None, provider=None):
         try:connected=codex_connection.status()['signed_in']
         except ProviderError:connected=False
         reason=('Sign in to Codex under Your connections.' if not connected else
-                'Before browsing: open the LinkedIn browser, sign in, paste your own profile URL, and click 2. Verify my account.' if not store.setting('account') else
                 'Resolve the recorded LinkedIn restriction first.' if store.setting('linkedin_restriction') else '')
         return {'ready':not bool(reason),'plan_ready':connected,'provider':'codex_browser','reason':reason}
 
@@ -359,17 +355,12 @@ def create_app(settings=None, provider=None):
     @app.post('/api/linkedin/reset',dependencies=[Depends(auth)])
     def reset():return job('linkedin-reset',lambda:linkedin().reset_connection())
 
-    @app.post('/api/linkedin/verify',dependencies=[Depends(auth)])
-    def verify(body:AccountRequest):
-        browser = linkedin()
-        return job('linkedin-verify',lambda:browser.verify_account(body.profile_url))
-
     @app.post('/api/linkedin/restriction/clear',dependencies=[Depends(auth)])
     def clear_restriction(body:RestrictionRequest):
         if not body.resolved:raise HTTPException(400,'Confirm the restriction has been resolved by LinkedIn')
         if busy.locked():raise HTTPException(409,'Wait for the current job to finish')
         store.setting('linkedin_restriction',False)
-        return {'status':'cleared','message':'Next action will recheck the account and page.'}
+        return {'status':'cleared','message':'Next action will check the signed-in browser session.'}
 
     @app.post('/api/sheets/sync',dependencies=[Depends(auth)])
     def sync():return job('sheets',lambda:SheetsSync(settings,store,google=google_connection).sync())

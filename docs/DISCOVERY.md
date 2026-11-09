@@ -10,8 +10,8 @@
 5. Review the plan and confirm that your local CRM contains previous contacts and
    replies, or that this is a genuinely new campaign. Google sync is an export;
    connecting an old spreadsheet does **not** import its history automatically.
-6. Before browsing, start the browser, sign in to LinkedIn, paste your own profile
-   URL and click **2. Verify my account**. Then click **Start research**. Watch
+6. Before browsing, start the browser and sign in to LinkedIn. There is no separate
+   account verification. Click **Start reviewed plan**. Watch
    the embedded browser and research event log.
 7. Review proposed candidates and source evidence in the CRM. Research never
    approves or sends invitations.

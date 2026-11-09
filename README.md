@@ -1,7 +1,7 @@
 # Outreach Workbench
 
 A local-first workspace for reviewing prospects, sending approved invitations,
-and collecting incoming replies. Prompt-driven discovery uses Codex and a verified
+and collecting incoming replies. Prompt-driven discovery uses Codex and a signed-in
 LinkedIn browser to propose source-backed candidates. A web UI and authenticated
 JSON API expose the same workflows.
 The demo works without external accounts. Live connectors use your own accounts.
@@ -68,8 +68,8 @@ docker compose --profile live up --build -d
 
 After startup, connect the workspace and click **Check connection** in the browser
 panel. Click **Open browser here**, enter your `VNC_PASSWORD`, then click
-**Open LinkedIn sign-in**. Sign in inside the embedded browser, paste your own
-profile URL, and verify the account. Login progress and failures appear beside
+**Open LinkedIn sign-in**. Sign in inside the embedded browser, then go to Research.
+No profile URL or separate account verification is required. Login progress and failures appear beside
 the viewer. A browser-offline state shows the startup instructions instead of
 an inactive localhost link. See [browser troubleshooting](docs/AUTHENTICATION.md#linkedin).
 
@@ -78,7 +78,7 @@ an inactive localhost link. See [browser troubleshooting](docs/AUTHENTICATION.md
   See [discovery setup and limits](docs/DISCOVERY.md).
   The demo returns fixed fictional records; it does not interpret the brief.
 - **Outreach manager:** approve an exact note, then explicitly send selected leads.
-  It verifies the signed-in account, recipient name and company before a single
+  It checks the browser session, recipient name and company before a single
   send. Ambiguous results become `uncertain` and cannot be automatically retried.
 - **Optional Jev assistance:** selects among ambiguous, visible Connect controls
   inside the verified recipient profile. It cannot invent URLs, choose a Send

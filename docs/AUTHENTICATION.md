@@ -38,10 +38,10 @@ would require TLS, user accounts, per-user storage and additional authorization.
    **Check connection**. Both the browser driver and viewer must be reachable.
 4. Click **Open browser here**. Enter `VNC_PASSWORD` from `.env` when the embedded
    viewer asks for a password. You can also open it in a separate tab.
-5. Click **1. Open LinkedIn sign-in**. Wait for the confirmation beside the viewer,
+5. Click **Open LinkedIn sign-in**. Wait for the confirmation beside the viewer,
    then sign in directly inside the browser and complete any 2FA yourself.
-6. Paste your own public LinkedIn profile URL and click **2. Verify my account**.
-   The app displays the last verified identity and rechecks it before actions.
+6. Return to Research and start your reviewed plan. No profile URL or separate
+   account verification is required. Actions use the account signed in to this browser.
 
 The browser service is optional and is not started by the demo-only command.
 If you see `ERR_CONNECTION_REFUSED`, run the `--profile live` command in step 2;
@@ -125,7 +125,7 @@ and [app-server authentication interface](https://learn.chatgpt.com/docs/app-ser
 
 ## Discovery agent
 
-After connecting Codex and verifying your LinkedIn browser account, prepare a
+After connecting Codex and signing in to LinkedIn in the browser, prepare a
 research plan, review it and explicitly start the run. Jev is optional for
 prioritizing observed profiles. Model access and quotas are exercised by planning
 and research; a successful authentication check alone does not prove model access.
