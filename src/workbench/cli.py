@@ -10,7 +10,10 @@ def main():
     sub.add_parser('serve')
     sub.add_parser('status')
     sub.add_parser('schema')
-    p=sub.add_parser('discover');p.add_argument('query');p.add_argument('--limit',type=int,default=10)
+    sub.add_parser('login')
+    sub.add_parser('sync')
+    p=sub.add_parser('verify');p.add_argument('profile_url')
+    p=sub.add_parser('discover');p.add_argument('query');p.add_argument('--limit',type=int,default=10);p.add_argument('--locations',nargs='*',default=[]);p.add_argument('--domains',nargs='*',default=[]);p.add_argument('--allow-paid-enrichment',action='store_true')
     p=sub.add_parser('read');p.add_argument('--limit',type=int,default=100)
     p=sub.add_parser('list');p.add_argument('table',choices=['leads','replies','deliveries','jobs','holds'])
     p=sub.add_parser('approve');p.add_argument('lead_id');p.add_argument('note')
@@ -20,8 +23,9 @@ def main():
         import uvicorn
         uvicorn.run('workbench.app:create_app',factory=True,host='0.0.0.0',port=8080)
         return
-    routes={'status':('GET','/api/status',None),'schema':('GET','/api/schema',None)}
-    if args.command=='discover':route=('POST','/api/discover',{'query':args.query,'limit':args.limit})
+    routes={'status':('GET','/api/status',None),'schema':('GET','/api/schema',None),'login':('POST','/api/linkedin/login',{}),'sync':('POST','/api/sheets/sync',{})}
+    if args.command=='discover':route=('POST','/api/discover',{'query':args.query,'limit':args.limit,'locations':args.locations,'domains':args.domains,'allow_paid_enrichment':args.allow_paid_enrichment})
+    elif args.command=='verify':route=('POST','/api/linkedin/verify',{'profile_url':args.profile_url})
     elif args.command=='read':route=('POST','/api/replies/read',{'limit':args.limit})
     elif args.command=='list':route=('GET','/api/records/'+args.table,None)
     elif args.command=='approve':route=('POST','/api/leads/'+args.lead_id+'/approve',{'note':args.note})

@@ -11,10 +11,15 @@ from pydantic import BaseModel, Field
 from .config import Settings
 from .store import Store, now
 from .demo import DemoProvider
+from .errors import ProviderError
+from .sheets import SheetsSync
 
 class DiscoveryRequest(BaseModel):
     query: str = Field(min_length=2,max_length=500)
     limit: int = Field(default=10,ge=1,le=100)
+    locations: list[str] = Field(default_factory=list,max_length=20)
+    domains: list[str] = Field(default_factory=list,max_length=20)
+    allow_paid_enrichment: bool = False
 
 class Approval(BaseModel):
     note: str = Field(min_length=1,max_length=200)
@@ -26,6 +31,12 @@ class SendRequest(BaseModel):
 class ReadRequest(BaseModel):
     limit: int = Field(default=100,ge=1,le=100)
 
+class AccountRequest(BaseModel):
+    profile_url: str = Field(min_length=10,max_length=300)
+
+class RestrictionRequest(BaseModel):
+    resolved: bool = False
+
 class HoldRequest(BaseModel):
     company: str = Field(min_length=1,max_length=200)
     reason: str = Field(min_length=1,max_length=500)
@@ -33,7 +44,7 @@ class HoldRequest(BaseModel):
 
 def create_app(settings=None, provider=None):
     settings=settings or Settings.from_env()
-    store=Store(settings.data_dir)
+    store=Store(settings.data_dir/settings.mode)
     app=FastAPI(title='Outreach Workbench',version='0.1.0',docs_url=None,redoc_url=None,openapi_url=None)
     # Live implementation supplied independently, never silently fall back to demo.
     if provider is None:
@@ -65,7 +76,7 @@ def create_app(settings=None, provider=None):
             try:result=fn();status='completed'
             except Exception as exc:
                 # Never persist raw HTTP errors, which may contain keys or payloads.
-                result={'error':type(exc).__name__,'message':'Job stopped. Check connection status; uncertain sends must be reconciled.'};status='failed'
+                result={'error':type(exc).__name__,'message':str(exc) if isinstance(exc,ProviderError) else 'Job stopped. Check connection status; uncertain sends must be reconciled.'};status='failed'
             finally:
                 with store.db() as db:db.execute('UPDATE jobs SET status=?,result=? WHERE id=?',(status,json.dumps(result),ident))
                 busy.release()
@@ -82,7 +93,9 @@ def create_app(settings=None, provider=None):
     def status():
         return {'mode':settings.mode,'daily_limit':settings.daily_limit,
                 'apollo_configured':bool(settings.apollo_key),'sheets_configured':bool(settings.sheet_id and settings.google_credentials),
-                'busy':busy.locked(),'account':store.setting('account')}
+                'busy':busy.locked(),'account':store.setting('account'),
+                'linkedin_restriction':store.setting('linkedin_restriction'),
+                'reader_report':store.setting('last_reader_report')}
 
     @app.get('/api/schema',dependencies=[Depends(auth)])
     def schema():return app.openapi()
@@ -93,7 +106,8 @@ def create_app(settings=None, provider=None):
     @app.post('/api/discover',dependencies=[Depends(auth)])
     def discover(body:DiscoveryRequest):
         def work():
-            leads=provider.discover(body.query,body.limit)
+            found=provider.discover(body.query,body.limit,locations=body.locations,domains=body.domains,allow_paid_enrichment=body.allow_paid_enrichment)
+            leads=found.get('candidates',[]) if isinstance(found,dict) else found
             added=sum(store.add_lead(x) for x in leads)
             return {'found':len(leads),'added':added,'duplicates':len(leads)-added}
         return job('discovery',work)
@@ -128,6 +142,27 @@ def create_app(settings=None, provider=None):
             rows=provider.read(store.list('leads'),body.limit)
             return {'observed':len(rows),'added':sum(store.reply(**r) for r in rows)}
         return job('reader',work)
+
+    def linkedin():
+        if settings.mode!='live' or not hasattr(provider,'linkedin'):
+            raise HTTPException(400,'Set WORKBENCH_MODE=live and start the browser container first')
+        return provider.linkedin
+
+    @app.post('/api/linkedin/login',dependencies=[Depends(auth)])
+    def login():return job('linkedin-login',lambda:linkedin().start_login())
+
+    @app.post('/api/linkedin/verify',dependencies=[Depends(auth)])
+    def verify(body:AccountRequest):return job('linkedin-verify',lambda:linkedin().verify_account(body.profile_url))
+
+    @app.post('/api/linkedin/restriction/clear',dependencies=[Depends(auth)])
+    def clear_restriction(body:RestrictionRequest):
+        if not body.resolved:raise HTTPException(400,'Confirm the restriction has been resolved by LinkedIn')
+        if busy.locked():raise HTTPException(409,'Wait for the current job to finish')
+        store.setting('linkedin_restriction',False)
+        return {'status':'cleared','message':'Next action will recheck the account and page.'}
+
+    @app.post('/api/sheets/sync',dependencies=[Depends(auth)])
+    def sync():return job('sheets',lambda:SheetsSync(settings,store).sync())
 
     @app.post('/api/holds',dependencies=[Depends(auth)])
     def hold(body:HoldRequest):
