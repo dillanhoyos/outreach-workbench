@@ -118,6 +118,7 @@ async function checkBrowser() {
     browserState = await api('browser/status');
     $('browser-badge').textContent = browserState.available ? 'Services reachable' : 'Browser offline';
     $('browser-message').textContent = browserState.message;
+    if (browserState.available && workspace.mode === 'live') openViewer();
     $('browser-help').open = !browserState.available || workspace.mode === 'demo';
     if (!browserState.available) { $('browser-frame').hidden = true; $('browser-frame').removeAttribute('src'); $('browser-empty').hidden = false; $('external-viewer').hidden = true; $('expand-browser').hidden = true; }
     if (workspace.mode === 'demo') $('login-progress').textContent = 'Demo mode: set WORKBENCH_MODE=live and start the browser to enable LinkedIn login. See setup below the viewer.';
@@ -244,7 +245,9 @@ const workspaceViews = ['discovery', 'browser-section', 'connections', 'outreach
 function showView(id) {
   const selected = workspaceViews.includes(id) ? id : 'discovery';
   if (workspace && window.location.hash !== '#' + selected) history.replaceState(null, '', '#' + selected);
-  for (const view of workspaceViews) $(view).hidden = !workspace || view !== selected;
+  const watching = Boolean(workspace) && workspace.mode === 'live' && selected === 'discovery';
+  $('research-workspace').classList.toggle('watching', watching);
+  for (const view of workspaceViews) $(view).hidden = !workspace || (view !== selected && !(watching && view === 'browser-section'));
   document.querySelectorAll('.sidebar nav a').forEach(link => {
     if (link.hash === '#' + selected) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');

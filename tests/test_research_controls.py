@@ -36,7 +36,7 @@ def test_navigation_keeps_one_screen_visible_and_preserves_form_state():
     script = Path('src/workbench/static/workbench.js').read_text()
     navigation = script[script.index('const workspaceViews ='):script.index('function renderWorkspace()')]
     code = '''const assert=require('node:assert/strict');
-const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft'};
+const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft',classList:{toggle(){}}};
 let workspace=null;
 const window={location:{hash:''}};
 const history={replaceState:(_,__,hash)=>window.location.hash=hash};
@@ -53,6 +53,10 @@ showView('discovery');assert.equal($('discovery').value,'saved draft');
 assert.equal(links[1]['aria-current'],undefined);
 assert.equal(workspaceViews.filter(id=>!$(id).hidden).length,1);
 showView('unknown');assert.equal(window.location.hash,'#discovery');
+workspace.mode='live';showView('discovery');
+assert.equal($('browser-section').hidden,false);
+assert.equal($('discovery').hidden,false);
+showView('connections');assert.equal($('browser-section').hidden,true);
 '''
     subprocess.run(['node', '-e', code], check=True, capture_output=True, text=True)
 
