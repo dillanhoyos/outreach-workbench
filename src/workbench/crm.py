@@ -221,6 +221,16 @@ def enrich(db,records):
             approval=action['approval'] if action else 'review',last_contact_at=action['sent_at'] if action else None)
         r['messages']=[dict(x) for x in db.execute('SELECT m.* FROM crm_messages m JOIN crm_conversations c ON c.id=m.conversation_id WHERE c.person_id=? ORDER BY occurred_at DESC',(p['id'],))]
         r['last_reply_at']=next((m['occurred_at'] for m in r['messages'] if m['direction']=='inbound'),None)
+        r['excluded']=excluded(db,p['id'],p['company_id'])
+        held=db.execute('SELECT 1 FROM holds WHERE company=?',(r.get('company','').strip().casefold(),)).fetchone()
+        receipt=db.execute('SELECT status,evidence FROM deliveries WHERE lead_id=?',(r['id'],)).fetchone()
+        r['availability_reason']=(
+            'Person or company is excluded' if r['excluded'] else
+            'Company is on hold' if held else
+            'Prior reply recorded' if r['last_reply_at'] else
+            (receipt['evidence'] or receipt['status']) if receipt else
+            'Research qualification required' if r['qualification']!='qualified' else '')
+        r['outreach_available']=not r['availability_reason'] and not str(r['id']).startswith('visited:') and r.get('status') in ('review','approved')
         r['sources']=[dict(x) for x in db.execute('SELECT source_url,fact_type,quotation,captured_at FROM crm_evidence WHERE person_id=? AND quotation IS NOT NULL',(p['id'],))]
     return records
 

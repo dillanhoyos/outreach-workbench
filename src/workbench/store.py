@@ -57,6 +57,29 @@ class Store:
             db.execute("""CREATE TABLE IF NOT EXISTS outreach_attempt_history (
               id TEXT PRIMARY KEY,lead_id TEXT NOT NULL REFERENCES leads(id),
               created TEXT NOT NULL,receipt TEXT NOT NULL,audit TEXT,archived_at TEXT NOT NULL)""")
+            db.executescript('''
+              CREATE TABLE IF NOT EXISTS workspace_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,lead_id TEXT,name TEXT NOT NULL,
+                kind TEXT NOT NULL,before_state TEXT,after_state TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',created TEXT NOT NULL);
+              CREATE TRIGGER IF NOT EXISTS workspace_lead_insert AFTER INSERT ON leads BEGIN
+                INSERT INTO workspace_changes(lead_id,name,kind,after_state,created)
+                VALUES(NEW.id,NEW.name,'crm_contact',NEW.status,strftime('%Y-%m-%dT%H:%M:%f+00:00','now'));
+              END;
+              CREATE TRIGGER IF NOT EXISTS workspace_lead_status AFTER UPDATE OF status ON leads
+              WHEN OLD.status != NEW.status BEGIN
+                INSERT INTO workspace_changes(lead_id,name,kind,before_state,after_state,detail,created)
+                VALUES(NEW.id,NEW.name,'crm_status',OLD.status,NEW.status,
+                  COALESCE((SELECT evidence FROM deliveries WHERE lead_id=NEW.id),''),
+                  strftime('%Y-%m-%dT%H:%M:%f+00:00','now'));
+              END;
+              CREATE TRIGGER IF NOT EXISTS workspace_invitation_stage AFTER UPDATE ON invitation_attempts
+              WHEN OLD.phase != NEW.phase BEGIN
+                INSERT INTO workspace_changes(lead_id,name,kind,before_state,after_state,created)
+                VALUES(NEW.lead_id,(SELECT name FROM leads WHERE id=NEW.lead_id),'invitation',
+                  OLD.phase,NEW.phase,NEW.updated_at);
+              END;
+            ''')
             crm.initialize(db)
             # An interrupted action is uncertain, never automatically retryable.
             db.execute("UPDATE deliveries SET status='uncertain' WHERE status='sending'")

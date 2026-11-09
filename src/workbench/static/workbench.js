@@ -15,7 +15,7 @@ async function api(path, body, method) {
 async function run(fn) { try { error(''); await fn(); } catch (e) { error(e.message); } }
 function controls() {
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
-  for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
+  for (const id of ['discover', 'refresh']) $(id).disabled = !idle;
   $('brief-send').disabled = !idle || briefSubmitting || workspace.mode !== 'live' || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
   $('clear-search-history').disabled = !idle || briefSubmitting;
   $('brief-reset').disabled = !idle || briefSubmitting;
@@ -43,6 +43,7 @@ function controls() {
   $('research-use-plan').hidden = !changed;
   $('research-use-plan').disabled = !idle;
   $('research-stop').disabled = !connected || !workspace.busy;
+  $('discover').hidden=Boolean(plan) && !changed && workspace?.mode==='live';
   $('sync').disabled = !idle || workspace.mode !== 'live' || !workspace.sheets_configured;
   $('check-browser').disabled = !connected || browserChecking;
   $('open-browser').disabled = !browserState?.available;
@@ -67,12 +68,12 @@ async function refresh() {
   if (refreshing) return;
   refreshing = true;
   try {
-    const [status, leads, replies, jobs, authState, discoveryState, reports] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs', 'connections', 'discovery/state','crm/report'].map(p => api(p)));
+    const [status, leads, history, jobs, authState, discoveryState, reports] = await Promise.all(['status', 'records/leads', 'crm/history', 'records/jobs', 'connections', 'discovery/state','crm/report'].map(p => api(p)));
     connections = authState; researchState = discoveryState;
     workspace = status;
     $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
     $('status').textContent = (status.busy ? 'A job is running. ' : 'Ready. ') + 'Daily action limit: ' + status.daily_limit + ' (UTC).';
-    $('account-name').textContent = 'Your signed-in browser';
+    $('account-name').textContent = 'Account: see LinkedIn in the browser';
     $('account-note').textContent = 'Sign in here, then go straight to Research. No profile URL or separate verification needed.';
     $('restriction').hidden = !status.linkedin_restriction;
     $('restriction').textContent = status.linkedin_restriction ? 'LinkedIn reported a restriction. Actions are paused; review it in the browser.' : '';
@@ -110,11 +111,25 @@ async function refresh() {
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
     crmReports=reports;crmRecords=leads;renderCrm(leads,status);
-    $('replies').textContent = replies.length ? replies.map(r => (leads.find(l => l.id === r.lead_id)?.name || r.lead_id) + ' · ' + r.received + '\n' + r.body).join('\n\n') : 'No replies recorded yet.';
+    renderHistory(history,jobs);renderRecipients();
+    const sending=leads.find(l=>l.outreach_status==='sending');
+    if(sending){
+      $('outreach-watch').hidden=false;$('outreach-watch-person').textContent='Invitation to '+sending.name;
+      $('outreach-watch-note').textContent=sending.note;
+      const stage=history.find(h=>h.lead_id===sending.id && h.kind==='invitation');
+      $('outreach-watch-status').textContent=stage ? stage.after_state.replaceAll('_',' ') : 'Checking recipient…';
+    }
+    if(!composerRestored){
+      composerRestored=true;
+      let saved;try{saved=sessionStorage.getItem('workbench-recipient');}catch(_){}
+      const previous=leads.find(l=>l.id===saved);
+      if(previous && window.location.hash==='#compose')await openComposer(previous);
+    }
+    $('crm-total').textContent=leads.length;
     $('jobs').textContent = jobs.length ? jobs.slice().reverse().map(j => j.kind + ' · ' + j.status + ' · ' + j.created + '\n' + j.result).join('\n\n') : 'No jobs yet.';
     renderWorkspace();
     controls();
-    if($('composer').open)composerControls();
+    if(composeState){const current=leads.find(l=>l.id===composeLead.id);if(current)composeLead=current;composerControls();}
   } finally { refreshing = false; }
 }
 async function checkBrowser() {
@@ -125,7 +140,7 @@ async function checkBrowser() {
     $('browser-badge').textContent = browserState.available ? 'Services reachable' : 'Browser offline';
     $('browser-message').textContent = browserState.message;
     if (browserState.available && workspace.mode === 'live') openViewer();
-    $('browser-help').open = !browserState.available || workspace.mode === 'demo';
+    $('browser-help').open = false;
     if (!browserState.available) { $('browser-frame').hidden = true; $('browser-frame').removeAttribute('src'); $('browser-empty').hidden = false; $('external-viewer').hidden = true; $('expand-browser').hidden = true; }
     if (workspace.mode === 'demo') $('login-progress').textContent = 'Demo mode: set WORKBENCH_MODE=live and start the browser to enable LinkedIn login. See setup below the viewer.';
   } catch (e) {
@@ -162,7 +177,7 @@ async function browserJob(path, body, pending, success) {
   } catch (e) { $('login-progress').textContent = e.message; throw e; }
   finally { await refresh(); }
 }
-$('access-form').onsubmit = event => { event.preventDefault(); run(async () => { token = $('token').value; $('token').value = ''; workspace = null; browserState = null; await refresh(); showView(workspace.mode === 'demo' || workspace.discovery.ready ? 'discovery' : !connections.codex.signed_in ? 'connections' : 'browser-section'); await checkBrowser(); }); };
+$('access-form').onsubmit = event => { event.preventDefault(); run(async () => { token = $('token').value; $('token').value = ''; workspace = null; browserState = null; await refresh(); showView(window.location.hash.slice(1) || (workspace.mode === 'demo' || workspace.discovery.ready ? 'discovery' : 'connections')); await checkBrowser(); }); };
 $('refresh').onclick = () => run(refresh);
 $('expand-browser').onclick = () => run(async () => { await $('browser-stage').requestFullscreen(); });
 $('check-browser').onclick = () => run(checkBrowser);
@@ -170,9 +185,9 @@ $('open-browser').onclick = () => run(async () => { await checkBrowser(); openVi
 $('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete any LinkedIn prompts, then return to Research.'); });
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
 $('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); const max_profiles=Number($('discovery-visits').value); if (!Number.isInteger(max_profiles) || max_profiles < 0 || max_profiles > 500) throw Error('Choose a visit limit from 1 to 500, or 0 for time only.'); const max_minutes=Number($('discovery-minutes').value); if (!Number.isInteger(max_minutes) || max_minutes < 1 || max_minutes > 60) throw Error('Choose a time limit from 1 to 60 minutes.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit, max_minutes, max_profiles, web_first:true,recheck_failed:$('discovery-recheck').checked,profile_url:$('discovery-profile').value.trim() }); await refresh(); });
-$('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
+
 $('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
-setInterval(() => { if (token && workspace) run(refresh); }, 5000);
+setInterval(() => { if (token && workspace) run(refresh); }, 1000);
 
 function renderConnections() {
   const c = connections.codex, j = connections.jev, g = connections.google;
@@ -251,18 +266,34 @@ $('google-sheet-form').onsubmit = event => {event.preventDefault();run(async()=>
 $('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('discovery-prompt').value=researchState.plan.prompt; $('discovery-limit').value=researchState.plan.limit; $('discovery-minutes').value=researchState.plan.max_minutes ?? 15; $('discovery-visits').value=researchState.plan.max_profiles ?? 0; $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || ''; $('research-history').checked=false; controls(); };
 
 // Navigate between focused screens without recreating the browser or form state.
-const workspaceViews = ['discovery', 'browser-section', 'connections', 'outreach', 'inbox', 'activity'];
+let composerRestored=false;
+let composeLead=null,composeState=null,composeBusy=false,composeJob=null;
+let activeMode='discovery';
+const workspaceViews=['discovery','compose','browser-section','connections','outreach','activity'];
+$('research-workspace').append($('composer'));
+$('connections').append($('browser-help'));
 function showView(id) {
-  const selected = workspaceViews.includes(id) ? id : 'discovery';
-  if (workspace && window.location.hash !== '#' + selected) history.replaceState(null, '', '#' + selected);
-  const watching = Boolean(workspace) && workspace.mode === 'live' && selected === 'discovery';
-  $('research-workspace').classList.toggle('watching', watching);
-  for (const view of workspaceViews) $(view).hidden = !workspace || (view !== selected && !(watching && view === 'browser-section'));
-  document.querySelectorAll('.sidebar nav a').forEach(link => {
-    if (link.hash === '#' + selected) link.setAttribute('aria-current', 'page');
+  const selected=workspaceViews.includes(id)?id:'discovery';
+  if(selected==='discovery' || selected==='compose')activeMode=selected;
+  const panel=['connections','outreach','activity'].includes(selected)?selected:null;
+  if(workspace && window.location.hash!=='#'+selected)history.replaceState(null,'','#'+selected);
+  $('research-workspace').hidden=!workspace;
+  $('research-workspace').classList.add('watching');
+  $('browser-section').hidden=!workspace;
+  $('discovery').hidden=!workspace || activeMode!=='discovery';
+  $('composer').hidden=!workspace || activeMode!=='compose' || !composeLead;
+  $('outreach-start').hidden=!workspace || activeMode!=='compose' || Boolean(composeLead);
+  for(const view of ['connections','outreach','activity']) {
+    $(view).hidden=!workspace || view!==panel;
+    $(view).classList.add('side-panel');
+  }
+  $('close-panel').hidden=!workspace || !panel;
+  document.querySelectorAll('.sidebar nav a').forEach(link=>{
+    if(link.hash==='#'+(panel || activeMode))link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   });
 }
+$('close-panel').onclick=()=>showView(activeMode);
 function renderWorkspace() {
   $('access').hidden = Boolean(workspace);
   $('workspace-bar').hidden = !workspace;
@@ -413,7 +444,7 @@ $('clear-search-history').onclick=()=>run(async()=>{
 });
 
 let crmRecords=[],crmReports=[];
-const crmFilterLabels={all:'All profiles',qualified:'Qualified',not_applicable:'Visited · not applicable',missing_evidence:'Missing evidence',other:'Other / interrupted'};
+const crmFilterLabels={all:'All profiles',qualified:'Qualified',not_applicable:'Visited · not applicable',missing_evidence:'Missing evidence',other:'Other / interrupted',available:'Available for outreach',sent:'Sent',blocked:'Blocked',uncertain:'Uncertain'};
 function crmCategory(lead) {
   if(lead.qualification) return ({qualified:'qualified',not_applicable:'not_applicable',missing_evidence:'missing_evidence'})[lead.qualification] || 'other';
   if(lead.status==='not_applicable')return 'not_applicable';
@@ -431,13 +462,14 @@ function renderCrm(leads,status) {
   if(campaignSelect.value)leads=leads.filter(l=>(l.assessments || []).some(a=>a.campaign_id===campaignSelect.value)).map(l=>{const a=l.assessments.find(a=>a.campaign_id===campaignSelect.value);return {...l,qualification:a.qualification,campaign_id:a.campaign_id,campaign:a.campaign_name,reason:a.explanation};});
   const counts={all:leads.length,qualified:0,not_applicable:0,missing_evidence:0,other:0};
   for(const lead of leads)counts[crmCategory(lead)]++;
+  for(const k of ['available','sent','blocked','uncertain'])counts[k]=leads.filter(l=>crmMatches(l,k)).length;
   for(const option of $('crm-filter').options)option.textContent=crmFilterLabels[option.value]+' ('+counts[option.value]+')';
-  const visible=selection==='all'?leads:leads.filter(lead=>crmCategory(lead)===selection);
+  const visible=selection==='all'?leads:leads.filter(lead=>crmMatches(lead,selection));
   $('crm-report').replaceChildren();
   const table=document.createElement('table'),head=table.createTHead().insertRow();
-  for(const name of ['Campaign','Researched','Qualified','Attempted','Sent','Replied','Reply rate']) {const cell=document.createElement('th');cell.textContent=name;head.append(cell);}
+  for(const name of ['Campaign','Researched','Qualified','Attempted','Sent']) {const cell=document.createElement('th');cell.textContent=name;head.append(cell);}
   const body=table.createTBody();
-  for(const r of crmReports || []) {if(campaignSelect.value && r.id!==campaignSelect.value)continue;const row=body.insertRow();for(const value of [r.name,r.researched,r.qualified,r.attempted,r.sent,r.replied_after_send,r.reply_rate===null?'—':Math.round(r.reply_rate*100)+'%'])row.insertCell().textContent=value;}
+  for(const r of crmReports || []) {if(campaignSelect.value && r.id!==campaignSelect.value)continue;const row=body.insertRow();for(const value of [r.name,r.researched,r.qualified,r.attempted,r.sent])row.insertCell().textContent=value;}
   $('crm-report').append(table);
   $('crm-filter-count').textContent='Showing '+visible.length+' of '+leads.length+' profiles';
     $('leads').replaceChildren();
@@ -447,7 +479,7 @@ function renderCrm(leads,status) {
       for (const value of [lead.name, (lead.company || 'Company not confirmed') + ' / ' + (lead.role || 'Role not confirmed'),
         (lead.campaign || 'Unassigned')+'\n'+(lead.qualification || lead.status).replaceAll('_',' '),
         (lead.outreach_status || 'not_contacted').replaceAll('_',' ')+' · '+(lead.approval || 'review'),
-        'Verified: '+(lead.last_verified_at?.slice(0,10) || 'Unknown')+'\nContact: '+(lead.last_contact_at?.slice(0,10) || 'None')+'\nReply: '+(lead.last_reply_at?.slice(0,10) || 'None')]) { const td = document.createElement('td'); td.textContent = value; td.style.whiteSpace='pre-line';tr.append(td); }
+        'Verified: '+(lead.last_verified_at?.slice(0,10) || 'Unknown')+'\nContact: '+(lead.last_contact_at?.slice(0,10) || 'None')]) { const td = document.createElement('td'); td.textContent = value; td.style.whiteSpace='pre-line';tr.append(td); }
       if(lead.visited_at || lead.assessments?.length) {
         const details=document.createElement('details'),summary=document.createElement('summary');
         summary.textContent=lead.visited?'Visited · research details':'Visit attempted · research details';details.append(summary);
@@ -478,14 +510,14 @@ $('crm-filter').onchange=()=>{
 
 $('crm-campaign').onchange=()=>{if(workspace)renderCrm(crmRecords,workspace);};
 
-let composeLead=null,composeState=null,composeBusy=false,composeJob=null;
 function composerControls(){
   const lead=composeState?.lead,note=$('compose-note').value,receipt=composeState?.receipt;
   const valid=note.trim().length>0 && note.length<=200;
+  $('compose-person').disabled=composeBusy || Boolean(workspace?.busy);
   $('compose-count').textContent=note.length+' / 200 characters'+(note.length>200?' · Shorten this note':'');
-  const locked=composeBusy || Boolean(workspace?.busy) || Boolean(receipt);
+  const locked=!lead || (composeLead && !composeLead.outreach_available) || composeBusy || Boolean(workspace?.busy) || Boolean(receipt);
   for(const button of $('compose-suggestions').querySelectorAll('button'))button.disabled=locked;
-  for(const id of ['compose-generate','compose-preview','compose-save','compose-approve','compose-person'])$(id).disabled=locked;
+  for(const id of ['compose-generate','compose-preview','compose-save','compose-approve'])$(id).disabled=locked;
   $('compose-generate').disabled=locked || !$('compose-instructions').value.trim();
   $('compose-save').disabled=locked || !valid;
   $('compose-approve').disabled=locked || !valid || (composeLead?.qualification && composeLead.qualification!=='qualified');
@@ -498,9 +530,9 @@ async function openComposer(lead){
   if(composeBusy)return;
   composeLead=lead;composeState=await api('leads/'+lead.id+'/composer');
   const select=$('compose-person');select.replaceChildren();
-  for(const p of crmRecords.filter(p=>!String(p.id).startsWith('visited:')))select.add(new Option(p.name+' · '+p.company,p.id));
-  select.value=lead.id;
-  $('compose-context').textContent=lead.role+' at '+lead.company+' · '+(lead.campaign || 'Unassigned campaign');
+  for(const p of crmRecords.filter(p=>!String(p.id).startsWith('visited:')))select.add(new Option(p.name+' · '+(p.outreach_available?'Available':p.outreach_status || p.qualification),p.id));
+  select.value=lead.id;select.disabled=composeBusy || Boolean(workspace?.busy);
+  $('compose-context').textContent=(lead.availability_reason ? lead.availability_reason+' · ' : '')+lead.role+' at '+lead.company+' · '+(lead.campaign || 'Unassigned campaign');
   $('compose-profile').href=lead.url;
   $('compose-evidence-text').textContent=(lead.reason || '')+'\n'+(lead.sources || []).map(s=>s.fact_type+': '+s.quotation).join('\n');
   $('compose-title').textContent='Message '+lead.name;
@@ -508,14 +540,17 @@ async function openComposer(lead){
   $('compose-instructions').value=draft?.instructions || '';
   $('compose-note').value=draft?.note || composeState.lead.note || '';
   $('compose-confirm').checked=false;
+  try{sessionStorage.setItem('workbench-recipient',lead.id);}catch(_){}
   $('compose-status').textContent=composeState.lead.status==='approved'?'Approved note loaded. Confirm the exact text before sending.':(draft?.result?.reason || 'Write instructions to generate a note, or draft one yourself.');
+  $('compose-suggestions-wrap').open=!composeState.receipt;
+  $('compose-suggestions-wrap').hidden=!(draft?.result?.suggestions?.length);
   $('compose-suggestions').replaceChildren();
   for(const suggestion of draft?.result?.suggestions || []){
     const card=document.createElement('article');card.className='suggestion';
     const text=document.createElement('p');text.textContent=suggestion.note;
     const evidence=document.createElement('small');evidence.textContent='Based on: “'+suggestion.evidence_quote+'” · '+suggestion.rationale;
     const button=document.createElement('button');button.className='secondary';button.textContent='Use this note';
-    button.onclick=()=>{$('compose-note').value=suggestion.note;$('compose-confirm').checked=false;composerControls();};
+    button.onclick=()=>{$('compose-suggestions-wrap').open=false;$('compose-note').value=suggestion.note;$('compose-confirm').checked=false;composerControls();};
     card.append(text,evidence,button);$('compose-suggestions').append(card);
   }
   $('compose-receipt').hidden=!composeState.receipt;
@@ -526,7 +561,7 @@ async function openComposer(lead){
   }
   const audit=composeState.network_receipt;
   if(audit){const detail=document.createElement('p');const net=audit.network;detail.textContent='Attempt stage: '+audit.phase+' · Send click: '+(audit.click_attempted?'attempted once':'not attempted')+' · Matching invitation POST 200: '+(net.accepted?'confirmed':'not observed');$('compose-receipt').append(detail);}
-  if(!$('composer').open)$('composer').showModal();
+  showView('compose');
   composerControls();
 }
 async function composerAction(action){
@@ -543,7 +578,7 @@ async function waitComposerJob(id){
     await new Promise(resolve=>setTimeout(resolve,1000));
   }
 }
-$('compose-close').onclick=()=>$('composer').close();
+$('compose-close').onclick=()=>{composeLead=null;composeState=null;showView('compose');renderRecipients();};
 $('compose-person').onchange=()=>run(()=>openComposer(crmRecords.find(p=>p.id===$('compose-person').value)));
 $('compose-note').oninput=()=>{$('compose-confirm').checked=false;composerControls();};
 $('compose-instructions').oninput=composerControls;
@@ -568,7 +603,7 @@ $('compose-send').onclick=()=>composerAction(async()=>{
   if(! $('compose-confirm').checked || composeState.lead.note!==note)throw Error('Approve and confirm this exact note first.');
   $('compose-status').textContent=workspace.mode==='demo'?'Simulating invitation…':'Sending one reviewed invitation. Watch the browser for the result.';
   const job=await api('outreach',{lead_ids:[id],confirm:true,expected_notes:{[id]:note}});
-  $('composer').close();showView('browser-section');$('return-composer').hidden=false;
+  showView('compose');showView('compose');
   $('outreach-watch').hidden=false;
   $('outreach-watch-person').textContent='Invitation to '+composeState.lead.name;
   $('outreach-watch-note').textContent=note;
@@ -584,7 +619,49 @@ $('compose-send').onclick=()=>composerAction(async()=>{
 });
 $('compose-preview').onclick=()=>composerAction(async()=>{
   const job=await api('leads/'+composeLead.id+'/preview',{});
-  if(job.job_id){$('composer').close();showView('browser-section');$('return-composer').hidden=false;await waitComposerJob(job.job_id);}
+  if(job.job_id){showView('compose');showView('compose');await waitComposerJob(job.job_id);}
   $('compose-status').textContent='Profile preview ready. Return to this draft when you finish reviewing.';
 });
 $('return-composer').onclick=()=>run(()=>openComposer(composeLead));
+
+function crmMatches(lead,filter){
+  if(filter==='available')return Boolean(lead.outreach_available);
+  if(filter==='sent')return lead.status==='confirmed';
+  if(['blocked','uncertain'].includes(filter))return lead.status===filter;
+  return crmCategory(lead)===filter;
+}
+function renderRecipients(){
+  const select=$('outreach-person'),selected=select.value;
+  const available=crmRecords.filter(l=>crmMatches(l,'available'));
+  select.replaceChildren(...available.map(l=>new Option(l.name+' · '+l.company,l.id)));
+  if(available.some(l=>l.id===selected))select.value=selected;
+  $('outreach-availability').textContent=available.length+' contacts available for review. LinkedIn availability is checked before sending.';
+  $('outreach-choose').disabled=!available.length || Boolean(workspace?.busy);
+}
+$('outreach-choose').onclick=()=>run(async()=>{
+  const lead=crmRecords.find(l=>l.id===$('outreach-person').value);
+  await openComposer(lead);
+  if($('outreach-prompt').value.trim())$('compose-instructions').value=$('outreach-prompt').value;
+  composerControls();
+});
+function renderHistory(changes,jobs){
+  const entries=changes.map(c=>({created:c.created,text:c.name+' · '+c.kind.replaceAll('_',' ')+' · '+(c.before_state || 'new')+' → '+c.after_state,detail:c.detail}));
+  for(const e of researchState?.events || []){
+    const summary=decisionSummary(e);entries.push({created:e.created,text:summary.title,detail:summary.text});
+  }
+  for(const j of jobs)entries.push({created:j.created,text:j.kind+' · '+j.status,detail:j.status==='failed'?j.result:''});
+  entries.sort((a,b)=>b.created.localeCompare(a.created));
+  const root=$('history-feed');root.replaceChildren();
+  for(const e of entries.slice(0,150)){
+    const card=document.createElement('article');card.className='decision-card';
+    const time=document.createElement('small');time.textContent=new Date(e.created).toLocaleString();
+    const title=document.createElement('p');title.textContent=e.text;
+    const detail=document.createElement('p');detail.textContent=e.detail || '';
+    card.append(time,title,detail);root.append(card);
+  }
+}
+
+for(const id of ['discovery-prompt','discovery-limit','discovery-minutes','discovery-visits','discovery-profile','outreach-prompt']){
+  try{const saved=sessionStorage.getItem('workbench-form-'+id);if(saved!==null)$(id).value=saved;}catch(_){}
+  $(id).addEventListener('input',()=>{try{sessionStorage.setItem('workbench-form-'+id,$(id).value);}catch(_){}});
+}

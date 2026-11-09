@@ -11,4 +11,4 @@ def short_research_deadline(monkeypatch):
     # Exercise deadline/cancellation without waiting minutes for exhausted fixtures.
     import threading
     timer=threading.Timer
-    monkeypatch.setattr('workbench.research.threading.Timer',lambda interval,callback:timer(min(interval,.3),callback))
+    monkeypatch.setattr('workbench.research.threading.Timer',lambda interval,callback:timer(min(interval,1.0),callback))

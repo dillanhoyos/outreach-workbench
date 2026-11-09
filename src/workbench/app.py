@@ -290,6 +290,11 @@ def create_app(settings=None, provider=None):
     @app.get('/api/schema',dependencies=[Depends(auth)])
     def schema():return app.openapi()
 
+    @app.get('/api/crm/history',dependencies=[Depends(auth)])
+    def crm_history():
+        with store.db() as db:
+            return [dict(r) for r in db.execute('SELECT * FROM workspace_changes ORDER BY id DESC LIMIT 200')]
+
     @app.get('/api/crm/report',dependencies=[Depends(auth)])
     def crm_report():
         from .crm import report

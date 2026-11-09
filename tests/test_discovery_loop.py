@@ -8,8 +8,9 @@ def test_parallel_web_serial_linkedin_dedupe_and_target(tmp_path,monkeypatch):
     plan['web_first']=False;store.setting('research_plan',plan) # old plans also migrate
     engine.reserve(PROFILE,'old-run')
     barrier=threading.Barrier(2);threads=[];browser_threads=[]
-    original=browser.profile
+    original=browser.profile;committed_counts=[]
     def profile(url):
+        committed_counts.append(len(store.list('leads')))
         browser_threads.append(threading.get_ident());return original(url)
     browser.profile=profile
     browser.search=lambda q:(_ for _ in ()).throw(AssertionError('Web first required'))
@@ -22,6 +23,9 @@ def test_parallel_web_serial_linkedin_dedupe_and_target(tmp_path,monkeypatch):
     assert report['staged']==3 and report['visited']==3 and report['reason']=='target_reached'
     assert len(set(threads))==2 and set(browser_threads)=={threading.get_ident()}
     assert report['web_first'] and len(store.list('leads'))==3
+    assert committed_counts==[0,1,2]  # each prior result committed before the next visit
+    with store.db() as db:
+        assert db.execute("SELECT count(*) FROM workspace_changes WHERE kind='research_assessment' AND after_state='review'").fetchone()[0]==3
     assert not store.list('deliveries')
 
 

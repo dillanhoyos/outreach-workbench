@@ -1,7 +1,9 @@
 # Outreach Workbench
 
-A local-first workspace for reviewing prospects, sending approved invitations,
-and collecting incoming replies. Prompt-driven discovery uses Codex and a signed-in
+A local-first, one-page workspace for researching prospects and sending reviewed
+connection invitations. Research and Outreach share a persistent live browser;
+CRM, History and Connections open from the left sidebar. Replies are outside the
+current interface. Prompt-driven discovery uses Codex and a signed-in
 LinkedIn browser to propose source-backed candidates. A web UI and authenticated
 JSON API expose the same workflows.
 The demo works without external accounts. Live connectors use your own accounts.
@@ -34,7 +36,7 @@ passwords. Rerunning it preserves your existing passwords and service keys.
 
 Open http://localhost:8080. Copy `WORKBENCH_TOKEN` from your private `.env` into the
 login field. Enter a research brief and click **Preview fictional leads**, review a fictional candidate and write a note,
-then simulate sending and read the fictional response. Nothing is sent in demo mode.
+then simulate sending and review the invitation receipt. Nothing is sent in demo mode.
 The UI polls job history; long operations return a job ID immediately.
 The demo does not start Chrome. The browser panel explains how to enable it.
 

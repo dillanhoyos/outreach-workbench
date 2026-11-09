@@ -85,6 +85,11 @@ class Discovery:
             entry={k:record[k] for k in ('run_id','audience','status','reason','visited_at')}
             history=[x for x in history if x['run_id']!=run_id]+[entry]
             record['research_history']=history
+            previous=json.loads(old['record']) if old else {}
+            if previous.get('status')!=record['status'] or previous.get('reason')!=record['reason']:
+                db.execute('INSERT INTO workspace_changes(lead_id,name,kind,before_state,after_state,detail,created) VALUES(?,?,?,?,?,?,?)',
+                    (record['id'],record['name'],'research_assessment',previous.get('status'),record['status'],record['reason'],now()))
+
             db.execute('INSERT INTO crm_research_profiles VALUES(?,?) ON CONFLICT(profile_key) DO UPDATE SET record=excluded.record',
                        (record['profile_key'],json.dumps(record,ensure_ascii=False)))
             from .crm import assessment

@@ -34,33 +34,29 @@ workspace=null;controls();assert.match($('research-start-help').textContent,/Con
     subprocess.run(['node','-e',code],check=True,capture_output=True,text=True)
 
 @pytest.mark.skipif(not shutil.which('node'), reason='Node is required for UI logic checks')
-def test_navigation_keeps_one_screen_visible_and_preserves_form_state():
-    script = Path('src/workbench/static/workbench.js').read_text()
-    navigation = script[script.index('const workspaceViews ='):script.index('function renderWorkspace()')]
-    code = '''const assert=require('node:assert/strict');
-const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft',classList:{toggle(){}}};
+def test_modes_keep_browser_mounted_and_sidebar_preserves_work():
+    script=Path('src/workbench/static/workbench.js').read_text()
+    navigation=script[script.index("let composerRestored="):script.index('function renderWorkspace()')]
+    code="""const assert=require('node:assert/strict');
+const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft',append(){},classList:{add(){}}};
 let workspace=null;
 const window={location:{hash:''}};
 const history={replaceState:(_,__,hash)=>window.location.hash=hash};
-const links=['discovery','connections'].map(id=>({hash:'#'+id,
- setAttribute(k,v){this[k]=v},removeAttribute(k){delete this[k]}}));
+const links=['discovery','compose','connections'].map(id=>({hash:'#'+id,setAttribute(k,v){this[k]=v},removeAttribute(k){delete this[k]}}));
 const document={querySelectorAll:()=>links};
-''' + navigation + '''
-showView('discovery');assert.ok(workspaceViews.every(id=>$(id).hidden));
-workspace={};showView('connections');
-assert.equal(window.location.hash,'#connections');
-assert.equal($('connections').hidden,false);assert.equal($('discovery').hidden,true);
-assert.equal(links[1]['aria-current'],'page');
+""" + navigation + """
+showView('discovery');assert.equal($('research-workspace').hidden,true);
+workspace={mode:'live'};showView('discovery');
+assert.equal($('browser-section').hidden,false);assert.equal($('discovery').hidden,false);
+showView('connections');
+assert.equal($('connections').hidden,false);assert.equal($('discovery').hidden,false);assert.equal($('browser-section').hidden,false);
+showView('compose');assert.equal($('outreach-start').hidden,false);assert.equal($('discovery').hidden,true);
+composeLead={id:'fixture'};showView('compose');assert.equal($('composer').hidden,false);
+showView('activity');assert.equal($('composer').hidden,false);assert.equal($('browser-section').hidden,false);
 showView('discovery');assert.equal($('discovery').value,'saved draft');
-assert.equal(links[1]['aria-current'],undefined);
-assert.equal(workspaceViews.filter(id=>!$(id).hidden).length,1);
-showView('unknown');assert.equal(window.location.hash,'#discovery');
-workspace.mode='live';showView('discovery');
-assert.equal($('browser-section').hidden,false);
-assert.equal($('discovery').hidden,false);
-showView('connections');assert.equal($('browser-section').hidden,true);
-'''
-    subprocess.run(['node', '-e', code], check=True, capture_output=True, text=True)
+assert.equal($('composer').hidden,true);
+"""
+    subprocess.run(['node','-e',code],check=True,capture_output=True,text=True)
 
 @pytest.mark.skipif(not shutil.which('node'), reason='Node is required for UI logic checks')
 def test_research_result_distinguishes_stopped_worker_from_success():

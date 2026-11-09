@@ -1,13 +1,13 @@
 # Reviewed invitation workflow
 
-In Local CRM, choose **Compose message** on a contact. The composer keeps one
+Switch to **Outreach**, describe the message and select an available CRM contact.
+Alternatively, open **CRM** in the sidebar and choose **Compose message**. The inline composer stays beside the live browser and keeps one
 recipient active and displays their company, role and campaign. Its recipient
 selector can switch to another saved contact. Archived profiles without a
 qualified contact record cannot be sent invitations.
 
 1. Review source evidence. **View in live browser** opens the selected profile,
-   checks its name, and makes the captured text available for drafting. Return
-   to the composer with **Return to message draft**. This step sends nothing.
+   checks its name, and makes the captured text available for drafting. The composer and browser remain visible together. This step sends nothing.
 2. Describe the message: your purpose or offer, desired language, tone and ask.
    Codex returns up to three notes with supporting source quotations. Missing
    evidence or invalid output stops generation. Demo uses a labeled fictional
@@ -19,7 +19,7 @@ qualified contact record cannot be sent invitations.
 4. **Approve this note**, then select the explicit recipient confirmation and
    **Send invitation**. The API checks the exact approved text again while
    reserving the action. Editing/saving/regenerating requires fresh approval.
-5. Sending reveals the live browser with the recipient, exact note and outcome above it. Use **Return to message draft** to inspect the detailed receipt. A confirmed send requires the exact invitation POST HTTP 200 or a verified
+5. Sending reveals the live browser with the recipient, exact note and outcome above it. The detailed receipt remains in the inline composer. A confirmed send requires the exact invitation POST HTTP 200 or a verified
    Pending state; an existing Pending/connection is skipped, not called a new send.
    Blocked and uncertain results stop the batch and are never retried automatically.
 
@@ -47,3 +47,23 @@ recipient sends. Live model generation can be checked independently without appr
 
 See [Invitation receipts](INVITATION_RECEIPTS.md) for request correlation, failure
 stages and the explicit retry policy.
+
+## Workspace history and CRM availability
+
+Research records a visit when inspection begins and commits each assessment as it
+finishes. The UI polls every second, including while a run is active; saves are
+shown only after the database transaction commits. A persistent change journal
+records contact creation, before/after qualification and outreach states,
+invitation phases and terminal receipts. History combines this with research
+activity and job outcomes. Existing reply records continue to prevent outreach,
+but reply reading and inbox controls are not part of the interface.
+
+Available recipients must be qualified and have no previous attempt, reply,
+company hold or exclusion. These checks come from the server and are enforced
+again when reserving a send. A visible account in the LinkedIn browser is the
+active account; the app does not claim a cached identity is current.
+
+Saved drafts and job records survive restarts. Mode switching retains the same
+iframe and form nodes; local research inputs and the last selected recipient are
+restored after a tab refresh and workspace unlock. Workspace credentials are
+never placed in browser storage.

@@ -94,3 +94,15 @@ Use a three-profile trial on your own installation for that validation.
 
 Google OAuth still requires your own web application client and consent.
 Fixture success is not a completed real Google sign-in or spreadsheet write.
+
+## One-page workspace UI
+
+Install Playwright and its Chromium runtime in the development environment, then
+run `python scripts/workspace_ui_smoke.py`. Set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` if using a separately installed Chromium.
+
+The script starts its own temporary demo database and HTTP server and shuts them
+down afterward. It checks research-to-CRM, inline drafting, exact-note approval,
+simulated sending, persistent history, filtering, refresh recovery, desktop and
+mobile layout, and preserving the browser frame across modes and sidebar panels.
+It never targets the live installation or sends real invitations.
