@@ -215,3 +215,14 @@ supply its URL. Saved CRM contacts remain excluded. An explicit recheck can prom
 an unqualified profile to a single qualified CRM entry; it does not create another
 copy. Interrupted visits and company exclusions remain protected. The research
 target counts qualified review candidates, not every retained CRM visit.
+
+## Filter CRM profiles
+
+Use **Show profiles** above the CRM table to switch between **All profiles**,
+**Qualified**, **Visited · not applicable**, **Missing evidence**, and
+**Other / interrupted**. Each option shows its count; the table reports how many
+profiles are displayed out of the full CRM. Qualified includes contacts already
+in the review/outreach workflow. Company exclusions and interrupted visits appear
+under Other. Filtering never changes qualification or enables outreach.
+The chosen filter survives refreshes, navigation and reloads in the same browser
+tab. Switch to All profiles to see the complete CRM again.

@@ -101,29 +101,7 @@ async function refresh() {
     $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : researchState.plan ? 'Your plan is prepared. Complete the step shown beside Start research.' : 'No research has started yet. Prepare a plan to begin.';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
-    $('leads').replaceChildren();
-    if (!leads.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 4; cell.className = 'empty'; cell.textContent = 'No candidates yet. Start with Find leads.'; }
-    for (const lead of leads) {
-      const tr = document.createElement('tr');
-      for (const value of [lead.name, (lead.company || 'Company not confirmed') + ' / ' + (lead.role || 'Role not confirmed'), ({not_applicable:'Not qualified for this audience',missing_evidence:'Missing evidence',visit_interrupted:'Visit interrupted',company_excluded:'Company excluded'})[lead.status] || lead.status]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
-      if(lead.visited_at) {
-        const details=document.createElement('details'),summary=document.createElement('summary');
-        summary.textContent=lead.visited?'Visited · research details':'Visit attempted · research details';details.append(summary);
-        const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent='Visited: '+lead.visited_at+'\nAudience: '+(lead.audience || 'Prior audience unavailable')+'\nDecision: '+lead.reason;details.append(text);
-        for(const entry of (lead.research_history || []).slice(0,-1)){const p=document.createElement('p');p.textContent=entry.visited_at+' · '+entry.status+' · '+entry.audience+' · '+entry.reason;details.append(p);}
-        tr.firstChild.append(details);
-      }
-      const td = document.createElement('td'), button = document.createElement('button');
-      button.textContent = lead.status === 'approved' ? 'Send approved note' : 'Review';
-      button.disabled = status.busy || !['review', 'approved'].includes(lead.status);
-      button.onclick = () => run(async () => {
-        if (lead.status === 'approved') {
-          if (confirm('Send this reviewed invitation to ' + lead.name + '?\n\n' + lead.note + '\n\n' + (workspace.mode === 'demo' ? 'Demo: simulated only.' : 'This sends a real invitation.'))) await api('outreach', { lead_ids: [lead.id], confirm: true });
-        } else { const note = prompt('Source evidence: ' + lead.evidence + '\n\nReview the profile and enter a note (max 200 characters).'); if (note) await api('leads/' + lead.id + '/approve', { note }); }
-        await refresh();
-      });
-      const a = document.createElement('a'); a.href = lead.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Profile ↗'; td.append(button, a); tr.append(td); $('leads').append(tr);
-    }
+    crmRecords=leads;renderCrm(leads,status);
     $('replies').textContent = replies.length ? replies.map(r => (leads.find(l => l.id === r.lead_id)?.name || r.lead_id) + ' · ' + r.received + '\n' + r.body).join('\n\n') : 'No replies recorded yet.';
     $('jobs').textContent = jobs.length ? jobs.slice().reverse().map(j => j.kind + ' · ' + j.status + ' · ' + j.created + '\n' + j.result).join('\n\n') : 'No jobs yet.';
     renderWorkspace();
@@ -419,3 +397,52 @@ $('clear-search-history').onclick=()=>run(async()=>{
     $('clear-history-status').textContent=result.message;
   } finally {controls();}
 });
+
+let crmRecords=[];
+const crmFilterLabels={all:'All profiles',qualified:'Qualified',not_applicable:'Visited · not applicable',missing_evidence:'Missing evidence',other:'Other / interrupted'};
+function crmCategory(lead) {
+  if(lead.status==='not_applicable')return 'not_applicable';
+  if(lead.status==='missing_evidence')return 'missing_evidence';
+  if(['review','approved','confirmed','simulated','replied','skipped','blocked','uncertain'].includes(lead.status))return 'qualified';
+  return 'other';
+}
+function renderCrm(leads,status) {
+  const selection=$('crm-filter').value;
+  const counts={all:leads.length,qualified:0,not_applicable:0,missing_evidence:0,other:0};
+  for(const lead of leads)counts[crmCategory(lead)]++;
+  for(const option of $('crm-filter').options)option.textContent=crmFilterLabels[option.value]+' ('+counts[option.value]+')';
+  const visible=selection==='all'?leads:leads.filter(lead=>crmCategory(lead)===selection);
+  $('crm-filter-count').textContent='Showing '+visible.length+' of '+leads.length+' profiles';
+    $('leads').replaceChildren();
+    if (!visible.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 4; cell.className = 'empty'; cell.textContent = leads.length ? 'No profiles match this filter. Choose All profiles to see your CRM.' : 'No candidates yet. Start with Find leads.'; }
+    for (const lead of visible) {
+      const tr = document.createElement('tr');
+      for (const value of [lead.name, (lead.company || 'Company not confirmed') + ' / ' + (lead.role || 'Role not confirmed'), ({not_applicable:'Not qualified for this audience',missing_evidence:'Missing evidence',visit_interrupted:'Visit interrupted',company_excluded:'Company excluded'})[lead.status] || lead.status]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
+      if(lead.visited_at) {
+        const details=document.createElement('details'),summary=document.createElement('summary');
+        summary.textContent=lead.visited?'Visited · research details':'Visit attempted · research details';details.append(summary);
+        const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent='Visited: '+lead.visited_at+'\nAudience: '+(lead.audience || 'Prior audience unavailable')+'\nDecision: '+lead.reason;details.append(text);
+        for(const entry of (lead.research_history || []).slice(0,-1)){const p=document.createElement('p');p.textContent=entry.visited_at+' · '+entry.status+' · '+entry.audience+' · '+entry.reason;details.append(p);}
+        tr.firstChild.append(details);
+      }
+      const td = document.createElement('td'), button = document.createElement('button');
+      button.textContent = lead.status === 'approved' ? 'Send approved note' : 'Review';
+      button.disabled = status.busy || !['review', 'approved'].includes(lead.status);
+      button.onclick = () => run(async () => {
+        if (lead.status === 'approved') {
+          if (confirm('Send this reviewed invitation to ' + lead.name + '?\n\n' + lead.note + '\n\n' + (workspace.mode === 'demo' ? 'Demo: simulated only.' : 'This sends a real invitation.'))) await api('outreach', { lead_ids: [lead.id], confirm: true });
+        } else { const note = prompt('Source evidence: ' + lead.evidence + '\n\nReview the profile and enter a note (max 200 characters).'); if (note) await api('leads/' + lead.id + '/approve', { note }); }
+        await refresh();
+      });
+      const a = document.createElement('a'); a.href = lead.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Profile ↗'; td.append(button, a); tr.append(td); $('leads').append(tr);
+    }
+
+}
+try {
+  const saved=sessionStorage.getItem('workbench-crm-filter');
+  if(Object.hasOwn(crmFilterLabels,saved))$('crm-filter').value=saved;
+}catch(_){/* Filtering works when browser storage is unavailable. */}
+$('crm-filter').onchange=()=>{
+  try{sessionStorage.setItem('workbench-crm-filter',$('crm-filter').value);}catch(_){}
+  if(workspace)renderCrm(crmRecords,workspace);
+};
