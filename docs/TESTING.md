@@ -28,7 +28,7 @@ simulated click. All identities and invitation events are fictional.
 Cleanup only the disposable test project:
 
 ```sh
-docker compose -p workbench-test down --volumes
+docker compose -p workbench-test --profile live down --volumes
 ```
 
 `--volumes` deletes that project's demo data and test browser profile. Never use
