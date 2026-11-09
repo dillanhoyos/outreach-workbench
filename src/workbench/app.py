@@ -248,9 +248,9 @@ def create_app(settings=None, provider=None):
         try:connected=codex_connection.status()['signed_in']
         except ProviderError:connected=False
         reason=('Sign in to Codex under Your connections.' if not connected else
-                'Verify your LinkedIn account in the browser.' if not store.setting('account') else
+                'Before browsing: open the LinkedIn browser, sign in, paste your own profile URL, and click 2. Verify my account.' if not store.setting('account') else
                 'Resolve the recorded LinkedIn restriction first.' if store.setting('linkedin_restriction') else '')
-        return {'ready':not bool(reason),'provider':'codex_browser','reason':reason}
+        return {'ready':not bool(reason),'plan_ready':connected,'provider':'codex_browser','reason':reason}
 
     @app.get('/api/status',dependencies=[Depends(auth)])
     def status():
@@ -302,7 +302,7 @@ def create_app(settings=None, provider=None):
     @app.post('/api/discovery/plan',dependencies=[Depends(auth)])
     def research_plan(body:DiscoveryRequest):
         state=discovery_status()
-        if settings.mode!='live' or not state['ready']:
+        if settings.mode!='live' or not state.get('plan_ready'):
             raise HTTPException(400,state.get('reason') or 'Research plans require live mode.')
         if body.limit>10:raise HTTPException(400,'Use 1–10 candidates per research run.')
         return job('discovery-plan',lambda:research.prepare(body.prompt,body.limit))

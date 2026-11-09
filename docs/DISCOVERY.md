@@ -2,7 +2,7 @@
 
 ## Run your first trial
 
-1. Start the live browser and app, sign in to LinkedIn and verify your own profile.
+1. Start the app in live mode. Browser setup can be completed after preparing a plan.
 2. Connect Codex using ChatGPT sign-in or an OpenAI API key. Connect Jev optionally.
 3. Write a brief including sector, geography and role families. Start with 3 leads.
 4. Click **Prepare research plan**. This uses your model quota to produce search
@@ -10,7 +10,9 @@
 5. Review the plan and confirm that your local CRM contains previous contacts and
    replies, or that this is a genuinely new campaign. Google sync is an export;
    connecting an old spreadsheet does **not** import its history automatically.
-6. Click **Start research**. Watch the embedded browser and research event log.
+6. Before browsing, start the browser, sign in to LinkedIn, paste your own profile
+   URL and click **2. Verify my account**. Then click **Start research**. Watch
+   the embedded browser and research event log.
 7. Review proposed candidates and source evidence in the CRM. Research never
    approves or sends invitations.
 

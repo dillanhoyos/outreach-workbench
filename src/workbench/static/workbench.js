@@ -16,7 +16,7 @@ async function run(fn) { try { error(''); await fn(); } catch (e) { error(e.mess
 function controls() {
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
   for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
-  $('discover').disabled = !idle || !workspace.discovery.ready;
+  $('discover').disabled = !idle || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
   $('research-start').disabled = !idle || !workspace.discovery.ready || !researchState?.plan || !$('research-history').checked || researchState.plan.prompt !== $('discovery-prompt').value.trim() || researchState.plan.limit !== Number($('discovery-limit').value);
   $('research-stop').disabled = !connected || !workspace.busy;
   $('sync').disabled = !idle || workspace.mode !== 'live' || !workspace.sheets_configured;
@@ -57,10 +57,12 @@ async function refresh() {
     $('discovery-state').textContent = status.mode === 'demo'
       ? 'Demo only: this previews a fixed set of fictional people. It does not interpret the prompt or search the web.'
       : status.discovery.reason || 'Ready: prepare a plan, review it, then start browser research. Candidates will be saved for review.';
+    $('research-browser-help').hidden = status.mode !== 'live' || Boolean(status.account);
+    if (status.mode === 'live' && status.discovery.plan_ready && !status.discovery.ready) $('discovery-state').textContent = 'You can prepare your plan now. ' + status.discovery.reason;
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
     if (researchState.plan) $('research-plan-text').textContent = researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
-    $('research-progress').textContent = JSON.stringify({report:researchState.report,events:researchState.events.slice(0,20).map(e=>({at:e.created,step:e.kind,detail:JSON.parse(e.detail)}))}, null, 2);
+    $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : 'No research has started yet. Prepare a plan to begin.';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
     $('leads').replaceChildren();
