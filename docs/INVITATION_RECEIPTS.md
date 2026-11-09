@@ -29,7 +29,7 @@ in network metadata. The composer displays the stage and confirmation basis.
 
 Failures at session/navigation/profile verification are blocked before any
 invitation control is clicked. Failures after opening invitation controls without
-conclusive acceptance remain uncertain. A Send click is never retried. Legacy
+conclusive acceptance remain uncertain. A Send click is never automatically retried. Legacy
 uncertain deliveries without a network audit remain uncertain; unrelated current
 HTTP 200 responses cannot retroactively reconcile them.
 
@@ -49,3 +49,19 @@ Set `FIXTURE_SELENIUM_URL` to a dedicated test Selenium instance and `FIXTURE_HO
 to this machine's address as seen by that instance. Never point this script at
 the signed-in workbench browser. The fixture adapter rewrites local receipt URLs
 for matching tests; it performs no real LinkedIn request.
+
+## Explicit retries
+
+An operator-authorized retry uses `POST /api/outreach` with one recipient,
+`confirm: true`, the exact original `expected_notes`, and `retry_created`
+matching the current receipt timestamp. Only blocked or uncertain receipts can
+be retried; normal sends still reject any existing attempt. Stale retry requests
+are rejected atomically. The sender checks the current recipient for Pending or
+an existing connection before opening an invitation.
+
+The previous delivery and its network audit are archived in
+`outreach_attempt_history` before reserving the new attempt. Historical attempts
+continue to count toward the UTC daily limit. Original receipts appear in the
+composer, and holds, exclusions and replies still block retries. A new uncertain
+result requires another explicit decision; it never triggers a send loop.
+Profile elements replaced during identity checking are re-read before any action.

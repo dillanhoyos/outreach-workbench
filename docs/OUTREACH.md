@@ -19,7 +19,7 @@ qualified contact record cannot be sent invitations.
 4. **Approve this note**, then select the explicit recipient confirmation and
    **Send invitation**. The API checks the exact approved text again while
    reserving the action. Editing/saving/regenerating requires fresh approval.
-5. Read the result in the composer and CRM. A confirmed send requires the exact invitation POST HTTP 200 or a verified
+5. Sending reveals the live browser with the recipient, exact note and outcome above it. Use **Return to message draft** to inspect the detailed receipt. A confirmed send requires the exact invitation POST HTTP 200 or a verified
    Pending state; an existing Pending/connection is skipped, not called a new send.
    Blocked and uncertain results stop the batch and are never retried automatically.
 
@@ -46,4 +46,4 @@ repeated sends. Browser UI testing uses an isolated demo workspace, never real
 recipient sends. Live model generation can be checked independently without approval.
 
 See [Invitation receipts](INVITATION_RECEIPTS.md) for request correlation, failure
-stages and the no-retry policy.
+stages and the explicit retry policy.

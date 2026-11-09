@@ -77,3 +77,26 @@ def test_preview_checks_identity_and_supplies_source(tmp_path):
     assert composer.state(lead['id'])['previewed_at']
     assert PERSON['current_role_quote'] in composer.context(lead['id'])[1]
     assert not store.list('deliveries')
+
+
+def test_explicit_retry_preserves_receipt_and_counts_daily_limit(tmp_path):
+    store,lead=fixture(tmp_path);ident=lead['id'];note='Hello, I would love to connect.'
+    store.approve(ident,note);store.reserve(ident,5,note)
+    store.invitation_audit(ident,'awaiting_confirmation',True,{'accepted':False})
+    store.delivery(ident,'uncertain','First attempt timed out')
+    original=store.list('deliveries')[0]
+    with pytest.raises(ValueError):store.reserve(ident,5,note)
+    with pytest.raises(ValueError):store.reserve(ident,5,'Changed note',original['created'])
+    with pytest.raises(ValueError):store.reserve(ident,5,note,'stale')
+    with pytest.raises(ValueError,match='Daily'):store.reserve(ident,1,note,original['created'])
+    store.reserve(ident,5,note,original['created'])
+    with store.db() as db:
+        history=db.execute('SELECT * FROM outreach_attempt_history').fetchone()
+        assert json.loads(history['receipt'])==original
+        assert json.loads(history['audit'])['click_attempted']==1
+    with pytest.raises(ValueError):store.reserve(ident,5,note,original['created'])
+    store.delivery(ident,'uncertain','Second attempt timed out')
+    second=store.list('deliveries')[0]
+    with pytest.raises(ValueError,match='Daily'):store.reserve(ident,2,note,second['created'])
+    store.delivery(ident,'confirmed','POST 200')
+    with pytest.raises(ValueError):store.reserve(ident,5,note,second['created'])

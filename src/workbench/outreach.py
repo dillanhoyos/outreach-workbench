@@ -44,6 +44,7 @@ class Composer:
                     if profile.get('text'):sources.append(profile['text'][:18000])
                     elif data.get('current_role_quote'):sources.append(data['current_role_quote'])
                 except (ValueError,AttributeError):pass
+            history=[json.loads(row[0]) for row in db.execute('SELECT receipt FROM outreach_attempt_history WHERE lead_id=? ORDER BY archived_at',(lead_id,))]
             preview=db.execute('SELECT profile FROM outreach_profile_previews WHERE lead_id=?',(lead_id,)).fetchone()
             if preview:sources.insert(0,json.loads(preview[0]).get('text','')[:18000])
         return lead,list(dict.fromkeys(sources))[:4]
@@ -54,8 +55,9 @@ class Composer:
             draft=db.execute('SELECT * FROM outreach_drafts WHERE lead_id=? ORDER BY rowid DESC LIMIT 1',(lead_id,)).fetchone()
             receipt=db.execute('SELECT * FROM deliveries WHERE lead_id=?',(lead_id,)).fetchone()
             audit=db.execute('SELECT * FROM invitation_attempts WHERE lead_id=?',(lead_id,)).fetchone()
+            history=[json.loads(row[0]) for row in db.execute('SELECT receipt FROM outreach_attempt_history WHERE lead_id=? ORDER BY archived_at',(lead_id,))]
             preview=db.execute('SELECT checked_at FROM outreach_profile_previews WHERE lead_id=?',(lead_id,)).fetchone()
-        return {'network_receipt':{**dict(audit),'network':json.loads(audit['network'])} if audit else None,'lead':lead,'draft':{**dict(draft),'result':json.loads(draft['result'])} if draft else None,'receipt':dict(receipt) if receipt else None,'previewed_at':preview[0] if preview else None,'mode':self.mode,'character_limit':200}
+        return {'previous_attempts':history,'network_receipt':{**dict(audit),'network':json.loads(audit['network'])} if audit else None,'lead':lead,'draft':{**dict(draft),'result':json.loads(draft['result'])} if draft else None,'receipt':dict(receipt) if receipt else None,'previewed_at':preview[0] if preview else None,'mode':self.mode,'character_limit':200}
 
     def preview(self,lead_id,browser):
         lead=self.store.get_lead(lead_id)

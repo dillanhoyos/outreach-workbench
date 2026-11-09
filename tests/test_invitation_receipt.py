@@ -108,3 +108,17 @@ def test_heading_failure_is_recorded_before_send(tmp_path):
     with store.db() as db:
         row=db.execute('SELECT * FROM invitation_attempts').fetchone()
         assert row['phase']=='profile_identity' and not row['click_attempted']
+
+
+def test_profile_rerender_rechecks_identity_without_duplicate_click(tmp_path):
+    from selenium.common.exceptions import StaleElementReferenceException
+    store,b,lead,state=send_fixture(tmp_path)
+    original=b.topcard
+    reads=[]
+    def card(name=None):
+        reads.append(name)
+        if len(reads)==1:raise StaleElementReferenceException('Profile rerendered')
+        return original(name)
+    b.topcard=card
+    assert b.send(lead)['status']=='confirmed'
+    assert len(reads)==2 and state['clicks']==1

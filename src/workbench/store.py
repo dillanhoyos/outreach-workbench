@@ -54,6 +54,9 @@ class Store:
             db.execute("""CREATE TABLE IF NOT EXISTS invitation_attempts (
               lead_id TEXT PRIMARY KEY REFERENCES deliveries(lead_id),phase TEXT NOT NULL,
               click_attempted INTEGER NOT NULL DEFAULT 0,network TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL)""")
+            db.execute("""CREATE TABLE IF NOT EXISTS outreach_attempt_history (
+              id TEXT PRIMARY KEY,lead_id TEXT NOT NULL REFERENCES leads(id),
+              created TEXT NOT NULL,receipt TEXT NOT NULL,audit TEXT,archived_at TEXT NOT NULL)""")
             crm.initialize(db)
             # An interrupted action is uncertain, never automatically retryable.
             db.execute("UPDATE deliveries SET status='uncertain' WHERE status='sending'")
@@ -104,11 +107,17 @@ class Store:
                 if not fit or fit['qualification']!='qualified':raise ValueError('This person is not qualified for that campaign')
                 db.execute('UPDATE crm_actions SET campaign_id=? WHERE id=?',(campaign_id,ident))
 
-    def reserve(self, ident, limit, expected_note=None):
+    def reserve(self, ident, limit, expected_note=None, retry_created=None):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             lead=db.execute('SELECT * FROM leads WHERE id=?',(ident,)).fetchone()
-            if not lead or lead['status']!='approved':raise ValueError('Review and approve this lead first')
+            previous=db.execute('SELECT * FROM deliveries WHERE lead_id=?',(ident,)).fetchone()
+            if retry_created is not None:
+                if not previous or previous['status'] not in ('uncertain','blocked') or previous['created']!=retry_created:
+                    raise ValueError('Retry receipt changed or cannot be retried')
+                if expected_note is None or expected_note!=previous['note']:
+                    raise ValueError('Confirm the exact original note before retrying')
+            elif not lead or lead['status']!='approved':raise ValueError('Review and approve this lead first')
             if expected_note is not None and lead['note']!=expected_note:raise ValueError('The approved note changed. Review it again before sending.')
             from .crm import excluded
             person=db.execute('SELECT id,company_id FROM crm_people WHERE legacy_lead_id=?',(ident,)).fetchone()
@@ -116,7 +125,14 @@ class Store:
             if db.execute('SELECT 1 FROM holds WHERE company=?',(lead['company'].casefold().strip(),)).fetchone():raise ValueError('Company is on hold')
             if db.execute('SELECT 1 FROM replies WHERE lead_id=?',(ident,)).fetchone():raise ValueError('This person has already replied')
             count=db.execute('SELECT count(*) FROM deliveries WHERE substr(created,1,10)=?',(now()[:10],)).fetchone()[0]
+            count+=db.execute('SELECT count(*) FROM outreach_attempt_history WHERE substr(created,1,10)=?',(now()[:10],)).fetchone()[0]
             if count>=limit:raise ValueError('Daily action limit reached (UTC)')
+            if retry_created is not None:
+                audit=db.execute('SELECT * FROM invitation_attempts WHERE lead_id=?',(ident,)).fetchone()
+                db.execute('INSERT INTO outreach_attempt_history VALUES(?,?,?,?,?,?)',
+                    (uuid.uuid4().hex,ident,previous['created'],json.dumps(dict(previous)),json.dumps(dict(audit)) if audit else None,now()))
+                db.execute('DELETE FROM invitation_attempts WHERE lead_id=?',(ident,))
+                db.execute('DELETE FROM deliveries WHERE lead_id=?',(ident,))
             try:db.execute("INSERT INTO deliveries(lead_id,status,note,created) VALUES(?,'sending',?,?)",(ident,lead['note'],now()))
             except sqlite3.IntegrityError:raise ValueError('Already attempted; inspect the existing receipt')
             from .crm import sync_lead

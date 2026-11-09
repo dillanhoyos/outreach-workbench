@@ -520,6 +520,10 @@ async function openComposer(lead){
   }
   $('compose-receipt').hidden=!composeState.receipt;
   $('compose-receipt').textContent=composeState.receipt?'Outreach result: '+composeState.receipt.status+' · '+composeState.receipt.evidence:'';
+  for(const previous of composeState.previous_attempts || []){
+    const item=document.createElement('p');item.textContent='Previous attempt: '+previous.status+' · '+previous.evidence;
+    $('compose-receipt').append(item);
+  }
   const audit=composeState.network_receipt;
   if(audit){const detail=document.createElement('p');const net=audit.network;detail.textContent='Attempt stage: '+audit.phase+' · Send click: '+(audit.click_attempted?'attempted once':'not attempted')+' · Matching invitation POST 200: '+(net.accepted?'confirmed':'not observed');$('compose-receipt').append(detail);}
   if(!$('composer').open)$('composer').showModal();
@@ -564,7 +568,19 @@ $('compose-send').onclick=()=>composerAction(async()=>{
   if(! $('compose-confirm').checked || composeState.lead.note!==note)throw Error('Approve and confirm this exact note first.');
   $('compose-status').textContent=workspace.mode==='demo'?'Simulating invitation…':'Sending one reviewed invitation. Watch the browser for the result.';
   const job=await api('outreach',{lead_ids:[id],confirm:true,expected_notes:{[id]:note}});
-  await waitComposerJob(job.job_id);composeBusy=false;await refresh();await openComposer(composeLead);
+  $('composer').close();showView('browser-section');$('return-composer').hidden=false;
+  $('outreach-watch').hidden=false;
+  $('outreach-watch-person').textContent='Invitation to '+composeState.lead.name;
+  $('outreach-watch-note').textContent=note;
+  $('outreach-watch-status').textContent='Opening the profile and sending your reviewed invitation…';
+  try {
+    await waitComposerJob(job.job_id);
+    composeState=await api('leads/'+id+'/composer');
+    $('outreach-watch-status').textContent=composeState.receipt.status+' · '+composeState.receipt.evidence;
+  } catch(error) {
+    $('outreach-watch-status').textContent=error.message+' Review the receipt before taking another action.';
+    throw error;
+  } finally { await refresh(); }
 });
 $('compose-preview').onclick=()=>composerAction(async()=>{
   const job=await api('leads/'+composeLead.id+'/preview',{});

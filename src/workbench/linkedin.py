@@ -14,7 +14,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.command import Command
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
+from selenium.common.exceptions import TimeoutException, InvalidSessionIdException, StaleElementReferenceException
 from .store import profile_key
 from .errors import ProviderError
 
@@ -176,7 +176,7 @@ class LinkedInBrowser:
                   if(actions && e.innerText.length<7000)return e;
                 }return null;
             """,h)
-        return WebDriverWait(d,12).until(locate)
+        return WebDriverWait(d,12,ignored_exceptions=(StaleElementReferenceException,)).until(locate)
 
     def open_invitation(self,card,lead):
         controls=[e for e in card.find_elements(By.CSS_SELECTOR,'button,a,[role="button"]')
@@ -247,14 +247,17 @@ class LinkedInBrowser:
         try:
             audit();self.require_session();step('profile_navigation')
             self.navigate(lead['url']);d=self.browser();step('profile_identity')
-            card=self.topcard(lead['name'])
-            headings=[h for h in card.find_elements(By.CSS_SELECTOR,'h1,h2') if h.is_displayed() and normalized(h.text)==normalized(lead['name'])]
-            if profile_key(d.current_url)!=profile_key(lead['url']) or not headings:
+            def snapshot(_):
+                card=self.topcard(lead['name'])
+                headings=[h for h in card.find_elements(By.CSS_SELECTOR,'h1,h2') if h.is_displayed() and normalized(h.text)==normalized(lead['name'])]
+                labels={e.text.strip() for e in card.find_elements(By.CSS_SELECTOR,'button,a,[role="button"]') if e.is_displayed()}
+                return card,bool(headings),labels,card.text
+            card,has_heading,labels,card_text=WebDriverWait(d,12,ignored_exceptions=(StaleElementReferenceException,)).until(snapshot)
+            if profile_key(d.current_url)!=profile_key(lead['url']) or not has_heading:
                 return result('blocked','Recipient identity mismatch; no send click attempted.')
-            labels={e.text.strip() for e in card.find_elements(By.CSS_SELECTOR,'button,[role="button"]') if e.is_displayed()}
-            if labels & {'Pending','Pendiente'} or (labels & {'Message','Mensaje','Enviar mensaje'} and re.search(r'(?m)^\s*(?:·\s*)?(?:1st|1er|1º|1°)\s*$',card.text)):
+            if labels & {'Pending','Pendiente'} or (labels & {'Message','Mensaje','Enviar mensaje'} and re.search(r'(?m)^\s*(?:·\s*)?(?:1st|1er|1º|1°)\s*$',card_text)):
                 return result('skipped','Pending invitation or existing connection visible; no new send attempted.')
-            if normalized(lead['company']) not in normalized(card.text):
+            if normalized(lead['company']) not in normalized(card_text):
                 return result('blocked','Current company not corroborated in the profile top card; no send click attempted.')
             step('identity_verified')
             step('opening_invitation');self.open_invitation(card,lead)

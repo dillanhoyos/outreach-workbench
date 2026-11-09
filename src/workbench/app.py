@@ -61,6 +61,7 @@ class ComposeRequest(BaseModel):
     campaign_id: str | None = Field(default=None,max_length=100)
 
 class SendRequest(BaseModel):
+    retry_created: str | None = None
     expected_notes: dict[str,str] | None = None
     lead_ids: list[str] = Field(min_length=1,max_length=100)
     confirm: bool = False
@@ -380,12 +381,13 @@ def create_app(settings=None, provider=None):
     @app.post('/api/outreach',dependencies=[Depends(auth)])
     def outreach(body:SendRequest):
         if not body.confirm:raise HTTPException(400,'Explicit confirmation required')
+        if body.retry_created is not None and (len(body.lead_ids)!=1 or body.expected_notes is None):raise HTTPException(400,'Retry requires one recipient and the exact original note')
         if len(set(body.lead_ids))!=len(body.lead_ids):raise HTTPException(400,'Duplicate IDs')
         if body.expected_notes is not None and set(body.expected_notes)!=set(body.lead_ids):raise HTTPException(400,'Confirm the exact note for every selected recipient')
         def work():
             results=[]
             for ident in body.lead_ids:
-                lead=store.reserve(ident,settings.daily_limit,body.expected_notes.get(ident) if body.expected_notes is not None else None)
+                lead=store.reserve(ident,settings.daily_limit,body.expected_notes.get(ident) if body.expected_notes is not None else None,body.retry_created)
                 try:
                     receipt=provider.send(lead)
                     if receipt['status'] not in ('confirmed','simulated','skipped','blocked','uncertain'):raise ValueError('Unknown receipt')
