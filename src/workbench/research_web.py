@@ -126,6 +126,7 @@ def discover(engine,plan,run_id,guard):
         known=[r[0] for r in db.execute('SELECT url FROM leads')]
         if plan.get('exclude_visited'):
             known.extend(r[0] for r in db.execute('SELECT url FROM research_visits'))
+            known.extend(json.loads(r[0])['url'] for r in db.execute('SELECT record FROM crm_research_profiles'))
     data=reason(engine.auth,
         'Use web search now to shortlist people matching the brief. Search company-first. '
         'Use primary sources: accelerator directories for exact batch, official company pages for product/sector. '

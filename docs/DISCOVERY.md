@@ -190,3 +190,28 @@ the profile-visit cap and the 15-minute deadline still apply. Exhausting these
 additional searches reports `discovery_budget_exhausted`, never success. Repeated
 queries are not executed. These bounds prevent an endless loop when the requested
 audience is too narrow or evidence is unavailable.
+
+## CRM visit memory and clearing search logs
+
+Every profile the worker opens is now retained in the local CRM, even if it does
+not qualify. Rows show a visit tag, date, audience brief and decision. Qualified
+candidates retain their review workflow; other rows are labeled **Not qualified
+for this audience**, **Missing evidence**, **Company excluded**, or **Visit
+interrupted**. These rows cannot be approved or sent. Prior assessments remain in
+the profile's research details when an explicit recheck changes its classification.
+Existing stored visits are brought into the CRM on upgrade. A visit that failed
+before capturing the profile is shown as an attempted visit, not verified identity.
+Search-result links that were never opened are not claimed as visited.
+
+**Clear search history** is beside Stop research. Its confirmation clears discovery
+run logs, the latest report and transient visit records, but preserves CRM profiles
+and their visit memory, contacts, replies, outreach records, company holds, account
+restrictions, saved connections, the conversation and current plan. It is blocked
+while any job runs. It never deletes the data volume or signs you out.
+
+Clearing logs therefore does not cause duplicate research. To reconsider a profile,
+select **Recheck profiles previously skipped for missing evidence** and optionally
+supply its URL. Saved CRM contacts remain excluded. An explicit recheck can promote
+an unqualified profile to a single qualified CRM entry; it does not create another
+copy. Interrupted visits and company exclusions remain protected. The research
+target counts qualified review candidates, not every retained CRM visit.

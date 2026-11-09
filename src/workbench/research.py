@@ -54,7 +54,54 @@ class Discovery:
               state TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '{}', created TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS research_events (
               id INTEGER PRIMARY KEY, run_id TEXT NOT NULL, kind TEXT NOT NULL,
-              detail TEXT NOT NULL, created TEXT NOT NULL);''')
+              detail TEXT NOT NULL, created TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS crm_research_profiles (
+              profile_key TEXT PRIMARY KEY, record TEXT NOT NULL);''')
+        # Backfill existing visits once; keep these CRM records across log resets.
+        with store.db() as db:
+            visits=[dict(r) for r in db.execute('SELECT v.* FROM research_visits v LEFT JOIN crm_research_profiles c USING(profile_key) WHERE c.profile_key IS NULL')]
+            starts={r['run_id']:json.loads(r['detail']).get('plan',{}).get('prompt','') for r in db.execute("SELECT run_id,detail FROM research_events WHERE kind='started'")}
+        for visit in visits:
+            self.remember(visit['url'],visit['state'],json.loads(visit['evidence']),visit['run_id'],starts.get(visit['run_id'],''),visit['created'])
+
+    def remember(self,url,state,evidence,run_id,brief,visited_at=None):
+        profile=evidence.get('profile') or {};assessment=evidence.get('assessment') or {}
+        status={'reserved':'visit_interrupted','current_employer_unclear':'missing_evidence',
+            'company_replied_or_held':'company_excluded','staged_for_review':'review','duplicate':'review'}.get(state,
+            'missing_evidence' if assessment.get('needs_web_evidence') else 'not_applicable')
+        record={'id':'visited:'+profile_key(url),'profile_key':profile_key(url),'url':url,
+            'name':profile.get('title') or 'Profile not captured',
+            'company':assessment.get('company') or (evidence.get('company') or {}).get('title',''),
+            'role':assessment.get('role',''),'country':assessment.get('country',''),'status':status,'note':'',
+            'visit_state':state,'run_id':run_id,'visited_at':visited_at or now(),'created':visited_at or now(),
+            'audience':brief,'reason':assessment.get('reason') or state.replace('_',' '),
+            'evidence':json.dumps(evidence,ensure_ascii=False),'visited':bool(profile)}
+        with self.store.db() as db:
+            old=db.execute('SELECT record FROM crm_research_profiles WHERE profile_key=?',(record['profile_key'],)).fetchone()
+            history=json.loads(old['record']).get('research_history',[]) if old else []
+            entry={k:record[k] for k in ('run_id','audience','status','reason','visited_at')}
+            history=[x for x in history if x['run_id']!=run_id]+[entry]
+            record['research_history']=history
+            db.execute('INSERT INTO crm_research_profiles VALUES(?,?) ON CONFLICT(profile_key) DO UPDATE SET record=excluded.record',
+                       (record['profile_key'],json.dumps(record,ensure_ascii=False)))
+
+    def crm_records(self):
+        leads=self.store.list('leads')
+        with self.store.db() as db:
+            visited={r['profile_key']:json.loads(r['record']) for r in db.execute('SELECT * FROM crm_research_profiles')}
+        result=[]
+        for lead in leads:
+            extra=visited.pop(lead['profile_key'],{})
+            result.append({**extra,**lead})
+        return result+list(visited.values())
+
+    def previous_visit(self,db,key):
+        row=db.execute('SELECT * FROM research_visits WHERE profile_key=?',(key,)).fetchone()
+        if row:return dict(row)
+        archived=db.execute('SELECT record FROM crm_research_profiles WHERE profile_key=?',(key,)).fetchone()
+        if not archived:return None
+        record=json.loads(archived['record'])
+        return {'state':record['visit_state'],'run_id':record['run_id'],'evidence':record['evidence']}
 
     def event(self, run_id, kind, detail):
         with self.store.db() as db:
@@ -97,6 +144,20 @@ class Discovery:
         self.store.setting('research_conversation',draft)
         return {'message':'Research brief updated.'}
 
+    def clear_history(self):
+        """Explicit reset of read-only discovery history, never CRM/action state."""
+        with self.store.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            active=db.execute("SELECT value FROM settings WHERE key='research_active'").fetchone()
+            if active and json.loads(active['value']):
+                raise ProviderError('Stop research and wait for it to finish before clearing search history.')
+            visits=db.execute('DELETE FROM research_visits').rowcount
+            events=db.execute('DELETE FROM research_events').rowcount
+            db.execute("DELETE FROM jobs WHERE kind='discovery'")
+            db.execute("DELETE FROM settings WHERE key='research_report'")
+        return {'visits_cleared':visits,'events_cleared':events,
+                'message':f'Search logs cleared ({visits} run visit records). CRM profiles and visit tags, contacts, replies, outreach records, connections and your brief are preserved. Use Recheck to deliberately revisit unqualified profiles.'}
+
     def reset_brief(self):
         self.store.setting('research_conversation',{'messages':[],'brief':'','revision':uuid.uuid4().hex})
         self.store.setting('research_plan',False)
@@ -132,13 +193,14 @@ class Discovery:
         with self.store.db() as db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT 1 FROM leads WHERE profile_key=?',(key,)).fetchone(): return 'known_contact'
-            previous=db.execute('SELECT * FROM research_visits WHERE profile_key=?',(key,)).fetchone()
+            previous=self.previous_visit(db,key)
             if recheck_failed and previous and previous['run_id']!=run_id and previous['state'] in ('insufficient_evidence','current_employer_unclear'):
                 # Keep the earlier evidence in the event history before replacing the reservation.
                 db.execute('INSERT INTO research_events(run_id,kind,detail,created) VALUES(?,?,?,?)',
                     (run_id,'rechecking',json.dumps({'url':url,'previous_run':previous['run_id'],'previous_state':previous['state'],'previous_evidence':json.loads(previous['evidence']),'reason':'Rechecking a prior evidence failure with fresh sources.'}),now()))
-                db.execute("UPDATE research_visits SET run_id=?,state='reserved' WHERE profile_key=?",(run_id,key))
+                db.execute("INSERT INTO research_visits(profile_key,url,run_id,state,evidence,created) VALUES(?,?,?,'reserved',?,?) ON CONFLICT(profile_key) DO UPDATE SET run_id=excluded.run_id,state='reserved'",(key,url,run_id,previous['evidence'],now()))
                 return ''
+            if previous:return 'previously_visited_or_reserved'
             inserted=db.execute('INSERT OR IGNORE INTO research_visits(profile_key,url,run_id,state,created) VALUES(?,?,?,\'reserved\',?)',
                                 (key,url,run_id,now())).rowcount
             return '' if inserted else 'previously_visited_or_reserved'
@@ -191,7 +253,7 @@ class Discovery:
                 if key in seen or key==own:continue
                 seen.add(key)
                 if db.execute('SELECT 1 FROM leads WHERE profile_key=?',(key,)).fetchone():continue
-                previous=db.execute('SELECT state,run_id FROM research_visits WHERE profile_key=?',(key,)).fetchone()
+                previous=self.previous_visit(db,key)
                 if previous and not (plan.get('recheck_failed') and previous['run_id']!=run_id and previous['state'] in ('insufficient_evidence','current_employer_unclear')):continue
                 fresh.append(link)
         removed=len(links)-len(fresh)
@@ -268,7 +330,9 @@ class Discovery:
                 web_links=[{'url':plan['profile_url'],'label':'Requested profile'}]
             elif plan.get('recheck_failed'):
                 with self.store.db() as db:
-                    web_links=[{'url':r['url'],'label':'Prior evidence failure'} for r in db.execute("SELECT url FROM research_visits WHERE state IN ('insufficient_evidence','current_employer_unclear') ORDER BY created DESC LIMIT ?",(plan['max_profiles'],))]
+                    rows=[json.loads(r['record']) for r in db.execute('SELECT record FROM crm_research_profiles')]
+                    web_links=[{'url':r['url'],'label':'Prior evidence failure'} for r in sorted(rows,key=lambda r:r['visited_at'],reverse=True)
+                        if r['visit_state'] in ('insufficient_evidence','current_employer_unclear')][:plan['max_profiles']]
                 if not web_links:web_links=None
             for links in self.batches(plan,run_id,report,guard,web_links):
                 guard()
@@ -280,7 +344,9 @@ class Discovery:
                         report['skipped']+=1;self.event(run_id,skip,{'url':url});continue
                     report['visited']+=1
                     self.event(run_id,'visiting',{'url':url,'label':link['label'],'reason':'Inspecting the next unvisited profile in the search order; qualification is still pending.'})
+                    self.remember(url,'reserved',{},run_id,plan['prompt'])
                     profile=self.browser.profile(url)
+                    self.remember(url,'reserved',{'profile':profile},run_id,plan['prompt'])
                     companies=profile['companies']
                     direct=[item for item in companies if fold(item['label']) and fold(item['label']) in fold(profile.get('headline',''))]
                     if link.get('web_company'):
@@ -330,6 +396,7 @@ class Discovery:
                     with self.store.db() as db:
                         db.execute('UPDATE research_visits SET state=?,evidence=? WHERE profile_key=?',
                                    (outcome,json.dumps(evidence,ensure_ascii=False),profile_key(url)))
+                    self.remember(url,outcome,evidence,run_id,plan['prompt'])
                     if outcome=='staged_for_review': report['staged']+=1
                     else: report['skipped']+=1
                     explanation=candidate.reason if candidate else selected.reason

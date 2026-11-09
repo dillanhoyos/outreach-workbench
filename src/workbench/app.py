@@ -34,6 +34,10 @@ class DiscoveryRequest(BaseModel):
     recheck_failed: bool = False
     profile_url: str = Field(default="",max_length=1000)
 
+class ClearSearchHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: bool = False
+
 class BriefMessage(BaseModel):
     model_config = ConfigDict(extra='forbid')
     message: str = Field(min_length=2,max_length=3000)
@@ -275,7 +279,7 @@ def create_app(settings=None, provider=None):
     def schema():return app.openapi()
 
     @app.get('/api/records/{table}',dependencies=[Depends(auth)])
-    def records(table:str):return store.list(table)
+    def records(table:str):return research.crm_records() if table=='leads' else store.list(table)
 
     @app.post('/api/leads/import',dependencies=[Depends(auth)])
     def import_leads(body:LeadImport):
@@ -309,6 +313,14 @@ def create_app(settings=None, provider=None):
             raise HTTPException(400,'Connect your research agent to discuss your audience.')
         if len(body.message.strip())<2:raise HTTPException(400,'Describe what you want to refine.')
         return job('discovery-brief',lambda:research.refine(body.message.strip(),body.brief.strip()))
+
+    @app.post('/api/discovery/history/clear',dependencies=[Depends(auth)])
+    def clear_search_history(body:ClearSearchHistory):
+        if not body.confirm:raise HTTPException(400,'Confirm clearing search history first.')
+        if not busy.acquire(blocking=False):
+            raise HTTPException(409,'Wait for the current job to finish before clearing search history.')
+        try:return research.clear_history()
+        finally:busy.release()
 
     @app.post('/api/discovery/brief/reset',dependencies=[Depends(auth)])
     def reset_brief():

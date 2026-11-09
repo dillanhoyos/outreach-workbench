@@ -17,6 +17,7 @@ function controls() {
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
   for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
   $('brief-send').disabled = !idle || briefSubmitting || workspace.mode !== 'live' || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
+  $('clear-search-history').disabled = !idle || briefSubmitting;
   $('brief-reset').disabled = !idle || briefSubmitting;
   $('discovery-prompt').disabled = !idle || briefSubmitting;
   $('discover').disabled = !idle || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
@@ -104,7 +105,14 @@ async function refresh() {
     if (!leads.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 4; cell.className = 'empty'; cell.textContent = 'No candidates yet. Start with Find leads.'; }
     for (const lead of leads) {
       const tr = document.createElement('tr');
-      for (const value of [lead.name, lead.company + ' / ' + lead.role, lead.status]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
+      for (const value of [lead.name, (lead.company || 'Company not confirmed') + ' / ' + (lead.role || 'Role not confirmed'), ({not_applicable:'Not qualified for this audience',missing_evidence:'Missing evidence',visit_interrupted:'Visit interrupted',company_excluded:'Company excluded'})[lead.status] || lead.status]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
+      if(lead.visited_at) {
+        const details=document.createElement('details'),summary=document.createElement('summary');
+        summary.textContent=lead.visited?'Visited · research details':'Visit attempted · research details';details.append(summary);
+        const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent='Visited: '+lead.visited_at+'\nAudience: '+(lead.audience || 'Prior audience unavailable')+'\nDecision: '+lead.reason;details.append(text);
+        for(const entry of (lead.research_history || []).slice(0,-1)){const p=document.createElement('p');p.textContent=entry.visited_at+' · '+entry.status+' · '+entry.audience+' · '+entry.reason;details.append(p);}
+        tr.firstChild.append(details);
+      }
       const td = document.createElement('td'), button = document.createElement('button');
       button.textContent = lead.status === 'approved' ? 'Send approved note' : 'Review';
       button.disabled = status.busy || !['review', 'approved'].includes(lead.status);
@@ -398,3 +406,16 @@ $('discovery-web-first').onchange = controls;
 
 $('discovery-recheck').onchange=controls;
 $('discovery-profile').oninput=controls;
+
+$('clear-search-history').onclick=()=>run(async()=>{
+  if(!confirm('Clear all discovery visits, skipped-profile history and research run logs? CRM profiles and visit tags will remain, so duplicates will still be skipped. Use Recheck to deliberately revisit unqualified profiles. Contacts, replies, outreach history, connections and your current brief and plan will be kept.'))return;
+  $('clear-search-history').disabled=true;
+  try {
+    const result=await api('discovery/history/clear',{confirm:true});
+    researchJobId=null;researchSeenJobId=null;decisionRevision=null;
+    $('research-launch-status').textContent='';$('research-history').checked=false;
+    $('decision-log').replaceChildren();$('decision-log').dataset.runId='';
+    await refresh();
+    $('clear-history-status').textContent=result.message;
+  } finally {controls();}
+});
