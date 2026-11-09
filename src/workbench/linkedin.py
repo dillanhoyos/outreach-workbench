@@ -199,7 +199,9 @@ class LinkedInBrowser:
     def invitation_form(self,lead):
         from .invitation_receipt import invite_url_matches
         def locate(d):
-            dialogs=[e for e in d.find_elements(By.CSS_SELECTOR,'[role="dialog"]') if e.is_displayed()]
+            candidates=d.find_elements(By.CSS_SELECTOR,'[role="dialog"]')
+            candidates+=d.execute_script("""return Array.from(document.querySelector("#interop-outlet")?.shadowRoot?.querySelectorAll('[role="dialog"]') || [])""")
+            dialogs=[e for e in candidates if e.is_displayed()]
             if len(dialogs)==1:return dialogs[0]
             if not dialogs and invite_url_matches(d.current_url,lead['url']):
                 main=d.find_elements(By.CSS_SELECTOR,'main')

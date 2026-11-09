@@ -26,6 +26,15 @@ class Handler(BaseHTTPRequestHandler):
         html=f'''<!doctype html><main><section><div><{heading}>Example Person</{heading}><p>Founder at Example Company</p><button>Example Company</button></div>{controls}</section></main>
         <div role="dialog" hidden><button onclick="document.querySelector('textarea').hidden=false">Add a note</button><textarea hidden></textarea>
         <button onclick="window.sends=(window.sends||0)+1;fetch('{INVITATION_PATH}',{{method:'POST',body:document.querySelector('textarea').value}})">Send</button></div>'''
+        if mode=='shadow-dialog':
+            html+="""<div id="interop-outlet"></div><script>
+            const shadow=document.querySelector('#interop-outlet').attachShadow({mode:'open'});
+            shadow.append(document.querySelector('[role=dialog]'));
+            document.querySelector('main section>button').onclick=()=>shadow.querySelector('[role=dialog]').hidden=false;
+            const buttons=shadow.querySelectorAll('button');
+            buttons[0].onclick=()=>shadow.querySelector('textarea').hidden=false;
+            buttons[1].onclick=()=>{window.sends=(window.sends||0)+1;fetch('RECEIPT_PATH',{method:'POST',body:shadow.querySelector('textarea').value})};
+            </script>""".replace('RECEIPT_PATH',INVITATION_PATH)
         self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(html.encode())
     def do_POST(self):
         assert self.path==INVITATION_PATH
@@ -53,7 +62,7 @@ try:
                 return result
         b.driver=FixtureDriver();b.require_session=lambda:None;b.navigate=lambda url:driver.get(root)
         try:
-            for mode in ('h2-more','h1-direct'):
+            for mode in ('h2-more','h1-direct','shadow-dialog'):
                 lead={'name':'Example Person','company':'Example Company','role':'Founder','country':'Example','url':FixtureDriver.current_url,'note':'Hello from a fictional fixture.'}
                 wrong=b.send({**lead,'company':'Different employer'})
                 assert wrong['status']=='blocked' and not posts

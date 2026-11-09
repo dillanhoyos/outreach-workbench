@@ -33,7 +33,7 @@ conclusive acceptance remain uncertain. A Send click is never automatically retr
 uncertain deliveries without a network audit remain uncertain; unrelated current
 HTTP 200 responses cannot retroactively reconcile them.
 
-Profile headers support H1 and H2. The More-menu fallback uses only an observed
+Profile headers support H1 and H2. Invitation dialogs inside LinkedIn’s interop shadow root are supported. The More-menu fallback uses only an observed
 custom-invite link whose `vanityName` matches the verified profile. It never
 constructs an invitation URL or clicks a recommended person's Connect control.
 
@@ -42,7 +42,7 @@ constructs an invitation URL or clicks a recommended person's Connect control.
 `tests/test_invitation_receipt.py` exercises correlation, stale/cached/unrelated
 200 rejection, metadata redaction, rate limits, click-timeout reconciliation and
 failure-stage persistence. `scripts/invitation_network_smoke.py` uses a disposable
-Selenium browser and a local HTTP stub to verify H1/direct and H2/More layouts,
+Selenium browser and a local HTTP stub to verify H1/direct, H2/More and shadow-dialog layouts,
 exact note preservation and one simulated POST with no Pending UI.
 
 Set `FIXTURE_SELENIUM_URL` to a dedicated test Selenium instance and `FIXTURE_HOST`
