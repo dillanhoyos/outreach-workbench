@@ -90,7 +90,7 @@ class Store:
         return dict(r)
 
     def approve(self, ident, note, campaign_id=None):
-        if not 1 <= len(note.strip()) <= 200:raise ValueError('Invitation note must contain 1–200 characters')
+        if not 1 <= len(note.strip().encode('utf-16-le'))//2 <= 200:raise ValueError('Invitation note must contain 1–200 characters')
         with self.db() as db:
             if db.execute('SELECT 1 FROM deliveries WHERE lead_id=?',(ident,)).fetchone():raise ValueError('An action already exists for this lead')
             if not db.execute("UPDATE leads SET status='approved',note=? WHERE id=?",(note.strip(),ident)).rowcount:raise ValueError('Lead not found')
@@ -101,11 +101,12 @@ class Store:
                 if not fit or fit['qualification']!='qualified':raise ValueError('This person is not qualified for that campaign')
                 db.execute('UPDATE crm_actions SET campaign_id=? WHERE id=?',(campaign_id,ident))
 
-    def reserve(self, ident, limit):
+    def reserve(self, ident, limit, expected_note=None):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             lead=db.execute('SELECT * FROM leads WHERE id=?',(ident,)).fetchone()
             if not lead or lead['status']!='approved':raise ValueError('Review and approve this lead first')
+            if expected_note is not None and lead['note']!=expected_note:raise ValueError('The approved note changed. Review it again before sending.')
             from .crm import excluded
             person=db.execute('SELECT id,company_id FROM crm_people WHERE legacy_lead_id=?',(ident,)).fetchone()
             if person and excluded(db,person['id'],person['company_id']):raise ValueError('Person or company is excluded')

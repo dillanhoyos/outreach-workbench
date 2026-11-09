@@ -114,6 +114,7 @@ async function refresh() {
     $('jobs').textContent = jobs.length ? jobs.slice().reverse().map(j => j.kind + ' · ' + j.status + ' · ' + j.created + '\n' + j.result).join('\n\n') : 'No jobs yet.';
     renderWorkspace();
     controls();
+    if($('composer').open)composerControls();
   } finally { refreshing = false; }
 }
 async function checkBrowser() {
@@ -458,14 +459,10 @@ function renderCrm(leads,status) {
         details.className='crm-detail';tr.firstChild.append(details);
       }
       const td = document.createElement('td'), button = document.createElement('button');
-      button.textContent = lead.status === 'approved' ? 'Send approved note' : 'Review';
-      button.disabled = status.busy || (lead.qualification && lead.qualification!=='qualified') || !['review', 'approved'].includes(lead.status);
-      button.onclick = () => run(async () => {
-        if (lead.status === 'approved') {
-          if (confirm('Send this reviewed invitation to ' + lead.name + '?\n\n' + lead.note + '\n\n' + (workspace.mode === 'demo' ? 'Demo: simulated only.' : 'This sends a real invitation.'))) await api('outreach', { lead_ids: [lead.id], confirm: true });
-        } else { const note = prompt('Source evidence: ' + lead.evidence + '\n\nReview the profile and enter a note (max 200 characters).'); if (note) await api('leads/' + lead.id + '/approve', { note, campaign_id:lead.campaign_id || null }); }
-        await refresh();
-      });
+      button.textContent = ['review','approved'].includes(lead.status) ? 'Compose message' : 'View outreach';
+      button.disabled = !lead.person_id && String(lead.id).startsWith('visited:');
+      if(String(lead.id).startsWith('visited:'))button.disabled=true;
+      button.onclick = () => run(()=>openComposer(lead));
       const a = document.createElement('a'); a.href = lead.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Profile ↗'; td.append(button, a); tr.append(td); $('leads').append(tr);
     }
 
@@ -480,3 +477,96 @@ $('crm-filter').onchange=()=>{
 };
 
 $('crm-campaign').onchange=()=>{if(workspace)renderCrm(crmRecords,workspace);};
+
+let composeLead=null,composeState=null,composeBusy=false,composeJob=null;
+function composerControls(){
+  const lead=composeState?.lead,note=$('compose-note').value,receipt=composeState?.receipt;
+  const valid=note.trim().length>0 && note.length<=200;
+  $('compose-count').textContent=note.length+' / 200 characters'+(note.length>200?' · Shorten this note':'');
+  const locked=composeBusy || Boolean(workspace?.busy) || Boolean(receipt);
+  for(const button of $('compose-suggestions').querySelectorAll('button'))button.disabled=locked;
+  for(const id of ['compose-generate','compose-preview','compose-save','compose-approve','compose-person'])$(id).disabled=locked;
+  $('compose-generate').disabled=locked || !$('compose-instructions').value.trim();
+  $('compose-save').disabled=locked || !valid;
+  $('compose-approve').disabled=locked || !valid || (composeLead?.qualification && composeLead.qualification!=='qualified');
+  $('compose-note').disabled=locked;$('compose-instructions').disabled=locked;
+  $('compose-send').disabled=locked || !valid || lead?.status!=='approved' || lead.note!==note || !$('compose-confirm').checked;
+  $('compose-send').textContent=workspace?.mode==='demo'?'Simulate invitation':'Send invitation';
+  $('compose-confirm-label').textContent=(workspace?.mode==='demo'?'Simulate sending':'Send')+' this exact invitation to '+(lead?.name || 'this person')+'.';
+}
+async function openComposer(lead){
+  if(composeBusy)return;
+  composeLead=lead;composeState=await api('leads/'+lead.id+'/composer');
+  const select=$('compose-person');select.replaceChildren();
+  for(const p of crmRecords.filter(p=>!String(p.id).startsWith('visited:')))select.add(new Option(p.name+' · '+p.company,p.id));
+  select.value=lead.id;
+  $('compose-context').textContent=lead.role+' at '+lead.company+' · '+(lead.campaign || 'Unassigned campaign');
+  $('compose-profile').href=lead.url;
+  $('compose-evidence-text').textContent=(lead.reason || '')+'\n'+(lead.sources || []).map(s=>s.fact_type+': '+s.quotation).join('\n');
+  $('compose-title').textContent='Message '+lead.name;
+  const draft=composeState.draft;
+  $('compose-instructions').value=draft?.instructions || '';
+  $('compose-note').value=draft?.note || composeState.lead.note || '';
+  $('compose-confirm').checked=false;
+  $('compose-status').textContent=composeState.lead.status==='approved'?'Approved note loaded. Confirm the exact text before sending.':(draft?.result?.reason || 'Write instructions to generate a note, or draft one yourself.');
+  $('compose-suggestions').replaceChildren();
+  for(const suggestion of draft?.result?.suggestions || []){
+    const card=document.createElement('article');card.className='suggestion';
+    const text=document.createElement('p');text.textContent=suggestion.note;
+    const evidence=document.createElement('small');evidence.textContent='Based on: “'+suggestion.evidence_quote+'” · '+suggestion.rationale;
+    const button=document.createElement('button');button.className='secondary';button.textContent='Use this note';
+    button.onclick=()=>{$('compose-note').value=suggestion.note;$('compose-confirm').checked=false;composerControls();};
+    card.append(text,evidence,button);$('compose-suggestions').append(card);
+  }
+  $('compose-receipt').hidden=!composeState.receipt;
+  $('compose-receipt').textContent=composeState.receipt?'Outreach result: '+composeState.receipt.status+' · '+composeState.receipt.evidence:'';
+  if(!$('composer').open)$('composer').showModal();
+  composerControls();
+}
+async function composerAction(action){
+  if(composeBusy)return;composeBusy=true;composerControls();
+  try{await action();}catch(error){$('compose-status').textContent=error.message;}finally{composeBusy=false;composerControls();}
+}
+async function waitComposerJob(id){
+  for(;;){
+    const jobs=await api('records/jobs'),job=jobs.find(j=>j.id===id);
+    if(job && job.status!=='running'){
+      if(job.status!=='completed')throw Error(job.result || 'The operation did not complete.');
+      return job;
+    }
+    await new Promise(resolve=>setTimeout(resolve,1000));
+  }
+}
+$('compose-close').onclick=()=>$('composer').close();
+$('compose-person').onchange=()=>run(()=>openComposer(crmRecords.find(p=>p.id===$('compose-person').value)));
+$('compose-note').oninput=()=>{$('compose-confirm').checked=false;composerControls();};
+$('compose-instructions').oninput=composerControls;
+$('compose-confirm').onchange=composerControls;
+$('compose-generate').onclick=()=>composerAction(async()=>{
+  $('compose-status').textContent='Drafting from profile evidence…';
+  const job=await api('leads/'+composeLead.id+'/draft',{instructions:$('compose-instructions').value,campaign_id:composeLead.campaign_id});
+  await waitComposerJob(job.job_id);composeBusy=false;await refresh();await openComposer(composeLead);
+});
+$('compose-save').onclick=()=>composerAction(async()=>{
+  await api('leads/'+composeLead.id+'/draft/save',{note:$('compose-note').value,instructions:$('compose-instructions').value,campaign_id:composeLead.campaign_id});
+  composeState=await api('leads/'+composeLead.id+'/composer');$('compose-status').textContent='Draft saved. Approve it when ready.';await refresh();
+});
+$('compose-approve').onclick=()=>composerAction(async()=>{
+  const note=$('compose-note').value.trim();$('compose-note').value=note;
+  await api('leads/'+composeLead.id+'/draft/save',{note,instructions:$('compose-instructions').value,campaign_id:composeLead.campaign_id});
+  await api('leads/'+composeLead.id+'/approve',{note,campaign_id:composeLead.campaign_id});
+  composeState=await api('leads/'+composeLead.id+'/composer');$('compose-status').textContent='Approved. Confirm below to send this exact note.';await refresh();
+});
+$('compose-send').onclick=()=>composerAction(async()=>{
+  const note=$('compose-note').value,id=composeLead.id;
+  if(! $('compose-confirm').checked || composeState.lead.note!==note)throw Error('Approve and confirm this exact note first.');
+  $('compose-status').textContent=workspace.mode==='demo'?'Simulating invitation…':'Sending one reviewed invitation. Watch the browser for the result.';
+  const job=await api('outreach',{lead_ids:[id],confirm:true,expected_notes:{[id]:note}});
+  await waitComposerJob(job.job_id);composeBusy=false;await refresh();await openComposer(composeLead);
+});
+$('compose-preview').onclick=()=>composerAction(async()=>{
+  const job=await api('leads/'+composeLead.id+'/preview',{});
+  if(job.job_id){$('composer').close();showView('browser-section');$('return-composer').hidden=false;await waitComposerJob(job.job_id);}
+  $('compose-status').textContent='Profile preview ready. Return to this draft when you finish reviewing.';
+});
+$('return-composer').onclick=()=>run(()=>openComposer(composeLead));

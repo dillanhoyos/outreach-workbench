@@ -55,7 +55,13 @@ class Approval(BaseModel):
     campaign_id: str | None = Field(default=None,max_length=100)
     note: str = Field(min_length=1,max_length=200)
 
+class ComposeRequest(BaseModel):
+    instructions: str = Field(default="",max_length=3000)
+    note: str = Field(default="",max_length=200)
+    campaign_id: str | None = Field(default=None,max_length=100)
+
 class SendRequest(BaseModel):
+    expected_notes: dict[str,str] | None = None
     lead_ids: list[str] = Field(min_length=1,max_length=100)
     confirm: bool = False
 
@@ -106,6 +112,8 @@ def create_app(settings=None, provider=None):
     google_connection = GoogleConnection(settings)
     research = Discovery(store,codex_connection,ResearchBrowser(provider.linkedin) if hasattr(provider,"linkedin") else None,jev_connection)
     store.setting("research_active",False)
+    from .outreach import Composer
+    composer=Composer(store,codex_connection,settings.mode)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -348,6 +356,23 @@ def create_app(settings=None, provider=None):
         research.stop.set()
         return {'message':'Stop requested. The current browser read will finish; no new visits will begin.'}
 
+    @app.get('/api/leads/{ident}/composer',dependencies=[Depends(auth)])
+    def composer_state(ident:str):return composer.state(ident)
+
+    @app.post('/api/leads/{ident}/draft',dependencies=[Depends(auth)])
+    def draft_note(ident:str,body:ComposeRequest):
+        if not body.instructions.strip():raise HTTPException(400,'Describe the message you want to write.')
+        return job('message-draft',lambda:composer.generate(ident,body.instructions,body.campaign_id))
+
+    @app.post('/api/leads/{ident}/draft/save',dependencies=[Depends(auth)])
+    def save_note(ident:str,body:ComposeRequest):
+        with connection_idle():return composer.save(ident,body.note,body.instructions,body.campaign_id)
+
+    @app.post('/api/leads/{ident}/preview',dependencies=[Depends(auth)])
+    def preview_recipient(ident:str):
+        if settings.mode!='live':return {'message':'Demo profile is fictional; no browser visit needed.'}
+        return job('outreach-preview',lambda:composer.preview(ident,research.browser))
+
     @app.post('/api/leads/{ident}/approve' ,dependencies=[Depends(auth)])
     def approve(ident:str,body:Approval):
         store.approve(ident,body.note,body.campaign_id);return {'status':'approved'}
@@ -356,10 +381,11 @@ def create_app(settings=None, provider=None):
     def outreach(body:SendRequest):
         if not body.confirm:raise HTTPException(400,'Explicit confirmation required')
         if len(set(body.lead_ids))!=len(body.lead_ids):raise HTTPException(400,'Duplicate IDs')
+        if body.expected_notes is not None and set(body.expected_notes)!=set(body.lead_ids):raise HTTPException(400,'Confirm the exact note for every selected recipient')
         def work():
             results=[]
             for ident in body.lead_ids:
-                lead=store.reserve(ident,settings.daily_limit)
+                lead=store.reserve(ident,settings.daily_limit,body.expected_notes.get(ident) if body.expected_notes is not None else None)
                 try:
                     receipt=provider.send(lead)
                     if receipt['status'] not in ('confirmed','simulated','skipped','blocked','uncertain'):raise ValueError('Unknown receipt')
