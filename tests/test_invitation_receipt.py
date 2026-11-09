@@ -122,3 +122,17 @@ def test_profile_rerender_rechecks_identity_without_duplicate_click(tmp_path):
     b.topcard=card
     assert b.send(lead)['status']=='confirmed'
     assert len(reads)==2 and state['clicks']==1
+
+
+def test_custom_note_quota_blocks_without_sending(tmp_path):
+    store,b,lead,state=send_fixture(tmp_path)
+    original=b.invitation_form
+    calls=[]
+    def form(*args):
+        calls.append(1)
+        if len(calls)==1:return original(*args)
+        return SimpleNamespace(text="You're out of free custom notes. Reactivate Premium.",find_elements=lambda *a:[])
+    b.invitation_form=form
+    result=b.send(lead)
+    assert result['status']=='blocked' and state['clicks']==0
+    assert 'notes remaining' in result['evidence']

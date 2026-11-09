@@ -269,8 +269,18 @@ class LinkedInBrowser:
                 return result('blocked','Recipient email required; no send click attempted.')
             if not any(e.is_displayed() for e in modal.find_elements(By.CSS_SELECTOR,'textarea')):
                 self.unique_button(modal,{'Add a note','Añadir una nota','Agregar una nota'}).click()
-            fields=[e for e in modal.find_elements(By.CSS_SELECTOR,'textarea') if e.is_displayed()]
-            if len(fields)!=1:raise ProviderError('Invitation note field is ambiguous.')
+            def note_ready(_):
+                current=self.invitation_form(lead)
+                text=normalized(getattr(current,'text',''))
+                if any(phrase in text for phrase in ('outoffreecustomnotes','nofreepersonalizedinvitations','sintepersonalizadasgratuitas','agotadolasnotas')):
+                    return current,None
+                fields=[e for e in current.find_elements(By.CSS_SELECTOR,'textarea') if e.is_displayed()]
+                if len(fields)>1:raise ProviderError('Invitation note field is ambiguous.')
+                return (current,fields) if fields else False
+            modal,fields=WebDriverWait(d,8,ignored_exceptions=(StaleElementReferenceException,)).until(note_ready)
+            if fields is None:
+                step('custom_note_limit')
+                return result('blocked','LinkedIn reports no free custom invitation notes remaining. No send click attempted; the approved note was not omitted.')
             fields[0].send_keys(lead['note'])
             if fields[0].get_attribute('value')!=lead['note']:raise ProviderError('Invitation note did not match the approved text.')
             self.check();button=self.unique_button(modal,{'Send','Enviar','Send invitation','Enviar invitación'})
