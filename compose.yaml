@@ -1,0 +1,32 @@
+name: outreach-workbench
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    env_file: .env
+    environment:
+      WORKBENCH_DATA: /data
+      SELENIUM_URL: http://browser:4444
+    volumes:
+      - workbench-data:/data
+      - ./secrets:/run/secrets:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+  browser:
+    image: selenium/standalone-chromium:4.29.0-20250222
+    profiles: [live]
+    shm_size: 2gb
+    ports:
+      - "127.0.0.1:${BROWSER_PORT:-7900}:7900"
+    environment:
+      SE_VNC_PASSWORD: ${VNC_PASSWORD:?Run python scripts/setup.py first}
+      SE_NODE_SESSION_TIMEOUT: 86400
+    volumes:
+      - browser-profile:/home/seluser/workbench-profile
+    restart: unless-stopped
+volumes:
+  workbench-data:
+  browser-profile:
