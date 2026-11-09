@@ -1,7 +1,6 @@
 'use strict';
 let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false;
 const $ = id => document.getElementById(id);
-const split = value => value.split(',').map(x => x.trim()).filter(Boolean);
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body) {
   const response = await fetch('/api/' + path, {
@@ -17,6 +16,7 @@ async function run(fn) { try { error(''); await fn(); } catch (e) { error(e.mess
 function controls() {
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
   for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
+  $('discover').disabled = !idle || !workspace.discovery.ready;
   $('sync').disabled = !idle || workspace.mode !== 'live' || !workspace.sheets_configured;
   $('check-browser').disabled = !connected || browserChecking;
   $('open-browser').disabled = !browserState?.available;
@@ -36,7 +36,10 @@ async function refresh() {
     $('account-note').textContent = status.account ? 'Last verified account. We check this identity again before reading or sending.' : 'Connect the browser, sign in, then confirm which account will perform actions.';
     $('restriction').hidden = !status.linkedin_restriction;
     $('restriction').textContent = status.linkedin_restriction ? 'LinkedIn reported a restriction. Actions are paused; review it in the browser.' : '';
-    $('apollo-state').textContent = status.apollo_configured ? 'Key configured' : 'Not configured';
+    $('discover').textContent = status.mode === 'demo' ? 'Preview fictional leads' : 'Research agent not connected';
+    $('discovery-state').textContent = status.mode === 'demo'
+      ? 'Demo only: this previews a fixed set of fictional people. It does not interpret the prompt or search the web.'
+      : 'Live research is not connected yet. The planned Codex/Jev agent will use this brief to research pages in the browser. No search runs from this form in this release.';
     $('jev-state').textContent = status.browser_advisor === 'jev' ? 'Enabled · key configured' : 'Off';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
@@ -113,7 +116,7 @@ $('open-browser').onclick = () => run(async () => { await checkBrowser(); openVi
 $('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete verification, then paste your profile URL and verify your account.'); });
 $('verify').onclick = () => run(async () => { if (!$('profile').value.trim()) throw Error('Paste your own LinkedIn profile URL first.'); await browserJob('linkedin/verify', { profile_url: $('profile').value.trim() }, 'Checking the signed-in identity…', 'Account verified. Your workspace is ready.'); });
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
-$('discover').onclick = () => run(async () => { await api('discover', { query: $('query').value, limit: 10, locations: split($('locations').value), domains: split($('domains').value), allow_paid_enrichment: $('credits').checked }); await refresh(); });
+$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw Error('Choose a target between 1 and 100.'); await api('discover', { prompt, limit }); await refresh(); });
 $('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
 $('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
 setInterval(() => { if (token && workspace) run(refresh); }, 5000);

@@ -29,10 +29,10 @@ def test_setup_fresh_and_repeated_preserves_keys(tmp_path, capsys):
 
 def test_setup_copied_template_and_legacy_placeholders(tmp_path):
     p = tmp_path / '.env'
-    p.write_text('WORKBENCH_TOKEN=replace-with-a-random-token-of-at-least-24-characters\nVNC_PASSWORD=replace-me\nAPOLLO_API_KEY=fixture-existing\n')
+    p.write_text('WORKBENCH_TOKEN=replace-with-a-random-token-of-at-least-24-characters\nVNC_PASSWORD=replace-me\nCUSTOM_SERVICE_KEY=fixture-existing\n')
     module.setup(tmp_path)
     assert 'replace-' not in p.read_text()
-    assert 'APOLLO_API_KEY=fixture-existing' in p.read_text()
+    assert 'CUSTOM_SERVICE_KEY=fixture-existing' in p.read_text()
     p.write_text((ROOT / '.env.example').read_text())
     module.setup(tmp_path)
     assert '\nWORKBENCH_TOKEN=\n' not in p.read_text()
@@ -70,10 +70,10 @@ def test_short_token_repaired_and_accepted_by_app(tmp_path, monkeypatch, assignm
 def test_explicit_reset_rotates_only_app_token(tmp_path, capsys):
     p = tmp_path / '.env'
     old = 'x' * 32
-    p.write_text('WORKBENCH_TOKEN=' + old + '\nVNC_PASSWORD=keepview\nAPOLLO_API_KEY=fixture-existing\n')
+    p.write_text('WORKBENCH_TOKEN=' + old + '\nVNC_PASSWORD=keepview\nCUSTOM_SERVICE_KEY=fixture-existing\n')
     module.setup(tmp_path, reset_token=True)
     text = p.read_text()
     assert old not in text
-    assert 'VNC_PASSWORD=keepview' in text and 'APOLLO_API_KEY=fixture-existing' in text
+    assert 'VNC_PASSWORD=keepview' in text and 'CUSTOM_SERVICE_KEY=fixture-existing' in text
     output = capsys.readouterr().out
     assert '--force-recreate' in output and 'fixture-existing' not in output

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from .config import Settings
 from .store import Store, now
 from .demo import DemoProvider
@@ -18,11 +18,9 @@ from .errors import ProviderError
 from .sheets import SheetsSync
 
 class DiscoveryRequest(BaseModel):
-    query: str = Field(min_length=2,max_length=500)
-    limit: int = Field(default=10,ge=1,le=100)
-    locations: list[str] = Field(default_factory=list,max_length=20)
-    domains: list[str] = Field(default_factory=list,max_length=20)
-    allow_paid_enrichment: bool = False
+    model_config = ConfigDict(extra='forbid')
+    prompt: str = Field(min_length=2, max_length=5000)
+    limit: int = Field(default=10, ge=1, le=100)
 
 class Approval(BaseModel):
     note: str = Field(min_length=1,max_length=200)
@@ -124,7 +122,7 @@ def create_app(settings=None, provider=None):
     def status():
         return {'mode':settings.mode,'daily_limit':settings.daily_limit,
                 'browser_advisor':settings.browser_advisor,'jev_configured':bool(settings.typesafe_key),
-                'apollo_configured':bool(settings.apollo_key),'sheets_configured':bool(settings.sheet_id and settings.google_credentials),
+                'discovery':{'ready':settings.mode == 'demo','provider':'demo' if settings.mode == 'demo' else 'not_connected'},'sheets_configured':bool(settings.sheet_id and settings.google_credentials),
                 'busy':busy.locked(),'account':store.setting('account'),
                 'linkedin_restriction':store.setting('linkedin_restriction'),
                 'reader_report':store.setting('last_reader_report')}
@@ -149,8 +147,10 @@ def create_app(settings=None, provider=None):
 
     @app.post('/api/discover',dependencies=[Depends(auth)])
     def discover(body:DiscoveryRequest):
+        if settings.mode != 'demo':
+            raise HTTPException(503, 'Browser-agent discovery is not connected in this release. No research job was started. See docs/DISCOVERY.md for the implementation plan.')
         def work():
-            found=provider.discover(body.query,body.limit,locations=body.locations,domains=body.domains,allow_paid_enrichment=body.allow_paid_enrichment)
+            found=provider.discover(body.prompt,body.limit)
             leads=found.get('candidates',[]) if isinstance(found,dict) else found
             added=sum(store.add_lead(x) for x in leads)
             return {'found':len(leads),'added':added,'duplicates':len(leads)-added}

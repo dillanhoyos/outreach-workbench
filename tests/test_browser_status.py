@@ -31,7 +31,7 @@ def test_missing_browser_produces_actionable_status_without_session_creation():
 
 def test_login_gates_missing_browser_before_starting_job(tmp_path, monkeypatch):
     import workbench.browser_status as module
-    settings = Settings(tmp_path, 'x'*32, 'live', 'http://browser:4444', 10, '', '', '')
+    settings = Settings(tmp_path, 'x'*32, 'live', 'http://browser:4444', 10, '', '')
     monkeypatch.setattr(module, 'browser_status', lambda settings: {'available': False})
     with TestClient(create_app(settings)) as client:
         assert client.get('/api/browser/status').status_code == 401
@@ -43,7 +43,7 @@ def test_login_gates_missing_browser_before_starting_job(tmp_path, monkeypatch):
 
 
 def test_demo_login_returns_clear_error_and_static_assets_work(tmp_path):
-    settings = Settings(tmp_path, 'x'*32, 'demo', '', 10, '', '', '')
+    settings = Settings(tmp_path, 'x'*32, 'demo', '', 10, '', '')
     with TestClient(create_app(settings)) as client:
         client.headers['Authorization'] = 'Bearer ' + 'x'*32
         result = client.post('/api/linkedin/login', json={})

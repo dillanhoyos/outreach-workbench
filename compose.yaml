@@ -4,8 +4,14 @@ services:
     build: .
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
-    env_file: .env
     environment:
+      WORKBENCH_MODE: ${WORKBENCH_MODE:-demo}
+      WORKBENCH_TOKEN: ${WORKBENCH_TOKEN:?Run python3 scripts/setup.py first}
+      DAILY_SEND_LIMIT: ${DAILY_SEND_LIMIT:-10}
+      BROWSER_ADVISOR: ${BROWSER_ADVISOR:-none}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      GOOGLE_SHEET_ID: ${GOOGLE_SHEET_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       WORKBENCH_DATA: /data
       SELENIUM_URL: http://browser:4444
       BROWSER_PORT: ${BROWSER_PORT:-7900}

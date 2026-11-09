@@ -1,7 +1,8 @@
 # Architecture and release evidence
 
-The API and UI share one sequential job runner. Provider adapters handle discovery,
-visible-browser outreach and reading, and optional spreadsheet export. SQLite is
+The API and UI share one sequential job runner. Provider adapters handle
+visible-browser outreach and reading, and optional spreadsheet export. Live
+discovery is not connected; see DISCOVERY.md for the porting plan. SQLite is
 the source of truth; demo and live workspaces are isolated. Approvals and send
 reservations are durable, and ambiguous sends are never automatically retried.
 

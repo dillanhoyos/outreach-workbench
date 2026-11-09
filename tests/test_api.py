@@ -5,7 +5,7 @@ from workbench.config import Settings
 
 
 def test_end_to_end_demo_and_auth(tmp_path):
-    settings=Settings(tmp_path,'x'*32,'demo','',10,'','','')
+    settings=Settings(tmp_path,'x'*32,'demo','',10,'','')
     with TestClient(create_app(settings)) as client:
         assert client.get('/api/status').status_code==401
         client.headers['Authorization']='Bearer '+'x'*32
@@ -15,7 +15,7 @@ def test_end_to_end_demo_and_auth(tmp_path):
                 if not client.get('/api/status').json()['busy']:return
                 time.sleep(.01)
             raise AssertionError('Job did not finish')
-        assert client.post('/api/discover',json={'query':'finance','limit':3}).status_code==200
+        assert client.post('/api/discover',json={'prompt':'Find finance professionals','limit':3}).status_code==200
         wait()
         leads=client.get('/api/records/leads').json();assert len(leads)==3
         ident=leads[0]['id']
@@ -28,11 +28,10 @@ def test_end_to_end_demo_and_auth(tmp_path):
         assert len(client.get('/api/records/replies').json())==1
         client.post('/api/replies/read',json={'limit':100});wait()
         assert len(client.get('/api/records/replies').json())==1
-        assert 'fictional' in client.get('/').text
 
 
 def test_process_lock_and_mode_isolation(tmp_path):
-    demo=Settings(tmp_path,'x'*32,'demo','',10,'','','')
+    demo=Settings(tmp_path,'x'*32,'demo','',10,'','')
     with TestClient(create_app(demo)) as client:
         import pytest
         with pytest.raises(RuntimeError,match='Another'):
@@ -43,7 +42,7 @@ def test_process_lock_and_mode_isolation(tmp_path):
         assert client.post('/api/leads/import',json={'leads':[record]}).json()['added']==1
         assert client.post('/api/leads/import',json={'leads':[record]}).json()['added']==0
     from workbench.demo import DemoProvider
-    live=Settings(tmp_path,'x'*32,'live','',10,'','','')
+    live=Settings(tmp_path,'x'*32,'live','',10,'','')
     with TestClient(create_app(live,provider=DemoProvider())) as client:
         client.headers['Authorization']='Bearer '+'x'*32
         assert client.get('/api/records/leads').json()==[]

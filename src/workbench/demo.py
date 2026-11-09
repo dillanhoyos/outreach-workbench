@@ -3,7 +3,7 @@ import hashlib
 from .store import now
 
 class DemoProvider:
-    def discover(self, query, limit=10, **options):
+    def discover(self, prompt, limit=10):
         return [dict(name=f'Demo Person {i+1}',company=f'Example Infrastructure {i//3+1}',
                      role='Finance Manager',country='Example Country',
                      url=f'https://www.linkedin.com/in/workbench-fictional-{i+1}',

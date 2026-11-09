@@ -26,7 +26,7 @@ def job(path,body):
     raise RuntimeError('Demo job deadline exceeded')
 
 assert api('status')['mode']=='demo'
-job('discover',{'query':'Controller','limit':3})
+job('discover',{'prompt':'Find controllers at infrastructure operators','limit':3})
 leads=api('records/leads');assert len(leads)==3
 lead=leads[0]
 api('leads/'+lead['id']+'/approve',{'note':'Hello from the fictional demo.'})

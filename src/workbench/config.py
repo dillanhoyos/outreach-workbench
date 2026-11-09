@@ -9,7 +9,6 @@ class Settings:
     mode: str
     selenium_url: str
     daily_limit: int
-    apollo_key: str
     sheet_id: str
     google_credentials: str
     browser_advisor: str = "none"
@@ -40,5 +39,5 @@ class Settings:
             raise ValueError('BROWSER_PORT must be between 1 and 65535')
         return cls(Path(os.getenv('WORKBENCH_DATA', './data')), token, mode,
                    os.getenv('SELENIUM_URL', 'http://browser:4444'), limit,
-                   os.getenv('APOLLO_API_KEY', ''), os.getenv('GOOGLE_SHEET_ID', ''),
+                   os.getenv('GOOGLE_SHEET_ID', ''),
                    os.getenv('GOOGLE_APPLICATION_CREDENTIALS', ''), advisor, key, browser_port)

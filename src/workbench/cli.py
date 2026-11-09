@@ -15,7 +15,7 @@ def main():
     p=sub.add_parser('import');p.add_argument('file')
     sub.add_parser('reset-browser')
     p=sub.add_parser('verify');p.add_argument('profile_url')
-    p=sub.add_parser('discover');p.add_argument('query');p.add_argument('--limit',type=int,default=10);p.add_argument('--locations',nargs='*',default=[]);p.add_argument('--domains',nargs='*',default=[]);p.add_argument('--allow-paid-enrichment',action='store_true')
+    p=sub.add_parser('discover',help='Preview fictional leads in demo mode; live browser research is not connected yet');p.add_argument('prompt');p.add_argument('--limit',type=int,default=10)
     p=sub.add_parser('read');p.add_argument('--limit',type=int,default=100)
     p=sub.add_parser('list');p.add_argument('table',choices=['leads','replies','deliveries','jobs','holds'])
     p=sub.add_parser('approve');p.add_argument('lead_id');p.add_argument('note')
@@ -26,7 +26,7 @@ def main():
         uvicorn.run('workbench.app:create_app',factory=True,host='0.0.0.0',port=8080)
         return
     routes={'status':('GET','/api/status',None),'schema':('GET','/api/schema',None),'login':('POST','/api/linkedin/login',{}),'sync':('POST','/api/sheets/sync',{}),'reset-browser':('POST','/api/linkedin/reset',{})}
-    if args.command=='discover':route=('POST','/api/discover',{'query':args.query,'limit':args.limit,'locations':args.locations,'domains':args.domains,'allow_paid_enrichment':args.allow_paid_enrichment})
+    if args.command=='discover':route=('POST','/api/discover',{'prompt':args.prompt,'limit':args.limit})
     elif args.command=='import':
         from pathlib import Path
         route=('POST','/api/leads/import',{'leads':json.loads(Path(args.file).read_text())})

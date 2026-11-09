@@ -56,7 +56,7 @@ def setup(root, reset_token=False):
     print('2. Open http://localhost:8080 (or your configured APP_PORT).')
     print('3. Open .env in your text editor. Copy only the value after WORKBENCH_TOKEN= into the app Connect field.')
     print('VNC_PASSWORD is only for the browser viewer in live mode. It is NOT your LinkedIn password.')
-    print('Setup does not create Jev, Apollo or Google accounts/keys. Add your own only when enabling those integrations.')
+    print('Setup does not create Jev or Google accounts/keys. Add your own only when enabling those integrations.')
     print('For Jev: set BROWSER_ADVISOR=jev and TYPESAFE_API_KEY in .env. See docs/AUTHENTICATION.md.')
     print('Keep .env private. No passwords or keys were printed here.')
 

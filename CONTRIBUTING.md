@@ -1,7 +1,7 @@
 # Contributing
 
 Use Python 3.12 and a separate workspace. Start with the demo; you do not need
-LinkedIn, Apollo, Google, or paid model credentials to contribute.
+LinkedIn, Google, or paid model credentials to contribute.
 
 ```sh
 python3 -m venv .venv

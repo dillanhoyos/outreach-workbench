@@ -69,8 +69,8 @@ layouts stop for review. No InMail or recipient email guessing is implemented.
 
 The original private scripts use Jev for several tasks. This public release
 currently supports only Connect-control selection, not the original discovery
-crawler, employer qualification or reply intent classification. Apollo remains
-the live discovery provider; you can also import your own leads.
+crawler, employer qualification or reply intent classification. Live discovery
+has no connected worker yet. You can import your own reviewed leads.
 
 1. Obtain your own API key at https://console.typesafe.ai/keys.
 2. In your private `.env`, set `BROWSER_ADVISOR=jev` and
@@ -92,21 +92,17 @@ responses, API failures and HTTP 429 stop the operation without retry. Changing
 Demo mode never calls Jev. A configured key is not proof that its account access
 works; this adapter is fixture-tested, not validated with a paid live account.
 
-## Apollo (lead finder)
+## Discovery agent (planned)
 
-Create your own API key with access to People API Search and People Enrichment.
-Put `APOLLO_API_KEY=...` in `.env` and restart the app. Search uses comma-separated
-job titles, optional locations and optional company domains. It does not interpret
-arbitrary natural-language queries as filters.
+The public app does not yet launch a Codex or Jev discovery worker. There is no
+active discovery API key setting. A TypeSafe key currently enables only the
+Connect-control advisor described above, not autonomous lead research.
 
-Search results are partially redacted. To obtain names and LinkedIn URLs the app
-uses People Enrichment, which may consume credits. Each live search requires
-`allow_paid_enrichment=true`; the request limit bounds enrichment calls. Personal
-email and phone reveal are disabled. Check your plan's pricing and permissions.
-The app stops on 429 or denied access, without automatic HTTP retries.
-
-Sources: [People API Search](https://docs.apollo.io/reference/people-api-search),
-[retrieving LinkedIn profiles](https://docs.apollo.io/docs/retrieve-linkedin-profiles-for-prospects).
+The [discovery implementation plan](DISCOVERY.md) specifies a local research
+worker with its own Codex authentication and optional Jev key. Neither a browser
+login nor a generated app password authenticates Codex. That worker and its
+connection UI still need implementation; do not copy private agent sessions or
+credentials into this repository. Demo previews require no agent account.
 
 ## Google Sheets (optional)
 
@@ -131,8 +127,7 @@ workflows do not require Google.
 
 ## Revocation
 
-Rotate the local token in `.env` and recreate the app container. Revoke Apollo keys
-in Apollo; revoke Google keys and spreadsheet sharing in Google. Sign out of
+Rotate the local token in `.env` and recreate the app container. Revoke TypeSafe keys in TypeSafe; revoke Google keys and spreadsheet sharing in Google. Sign out of
 LinkedIn through the browser. Removing a browser volume destroys its saved session;
 removing the app data volume destroys the local CRM. Back up deliberately before
 any destructive volume operation.

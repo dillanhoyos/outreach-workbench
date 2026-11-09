@@ -1,39 +1,23 @@
-import httpx
-import pytest
-from workbench.discovery import ApolloDiscovery
-from workbench.errors import ProviderError
+from fastapi.testclient import TestClient
+from workbench.app import create_app
+from workbench.config import Settings
 
 
-def test_credit_consent_required_before_network():
-    with pytest.raises(ProviderError,match='Explicitly'):
-        ApolloDiscovery('test-key').discover('Finance',1)
+def test_live_discovery_reports_missing_worker_without_running_or_adding_leads(tmp_path):
+    settings = Settings(tmp_path, 'x'*32, 'live', '', 10, '', '')
+    with TestClient(create_app(settings)) as client:
+        client.headers['Authorization'] = 'Bearer ' + 'x'*32
+        assert client.get('/api/status').json()['discovery'] == {'ready': False, 'provider': 'not_connected'}
+        result = client.post('/api/discover', json={'prompt': 'Find accounting managers at road operators', 'limit': 3})
+        assert result.status_code == 503 and 'No research job was started' in result.json()['detail']
+        assert client.get('/api/records/jobs').json() == []
+        assert client.get('/api/records/leads').json() == []
 
 
-def test_search_enrichment_and_filters():
-    seen=[]
-    def handle(req):
-        import json
-        body=json.loads(req.content);seen.append((req.url.path,body))
-        assert req.headers['x-api-key']=='fixture-key'
-        if 'api_search' in req.url.path:
-            return httpx.Response(200,json={'people':[{'id':'fixture-1'},{'id':'fixture-2'}]})
-        if body['id']=='fixture-2':return httpx.Response(200,json={'person':None})
-        return httpx.Response(200,json={'person':{'id':'fixture-1','name':'Fictional Person','title':'CFO',
-            'country':'Example','organization':{'name':'Example Co'},'linkedin_url':'https://www.linkedin.com/in/fixture-person'}})
-    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
-        r=ApolloDiscovery('fixture-key',client).discover('CFO, Controller',2,locations=['Example'],domains=['example.com'],allow_paid_enrichment=True)
-    assert len(r['candidates'])==1 and r['skipped_incomplete']==1
-    assert seen[0][1]['person_titles']==['CFO','Controller']
-    assert seen[0][1]['person_locations']==['Example']
-    assert all(not b.get('reveal_phone_number') for _,b in seen[1:])
-
-
-def test_429_stops_without_retry_or_secret_output():
-    calls=[]
-    def handle(req):
-        calls.append(req)
-        return httpx.Response(429,json={'secret':'do-not-display'})
-    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
-        with pytest.raises(ProviderError,match='rate limit') as e:
-            ApolloDiscovery('fixture-key',client).discover('CFO',allow_paid_enrichment=True)
-    assert len(calls)==1 and 'do-not-display' not in str(e.value)
+def test_discovery_requires_research_brief_and_rejects_provider_filters(tmp_path):
+    settings = Settings(tmp_path, 'x'*32, 'demo', '', 10, '', '')
+    with TestClient(create_app(settings)) as client:
+        client.headers['Authorization'] = 'Bearer ' + 'x'*32
+        assert client.post('/api/discover', json={'limit': 3}).status_code == 422
+        assert client.post('/api/discover', json={'prompt': 'Find finance people', 'locations': ['Example']}).status_code == 422
+        assert client.get('/api/status').json()['discovery'] == {'ready': True, 'provider': 'demo'}

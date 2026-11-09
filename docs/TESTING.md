@@ -36,8 +36,8 @@ that option against a real workspace without an intentional backup.
 
 ## Live verification boundary
 
-Apollo requests and Google writes are contract-tested with fixtures. A user's
-account permissions, available credits and workspace policies must still be
+Google writes and Jev control selection are contract-tested with fixtures. A user's
+account permissions and workspace policies must still be
 checked during their own onboarding. LinkedIn UI compatibility can change. No
 claim is made that fixture results establish current authenticated production
 behavior, inbox completeness, accepted invitations or account safety.
