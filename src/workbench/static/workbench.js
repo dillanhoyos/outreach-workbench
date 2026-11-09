@@ -86,6 +86,7 @@ async function refresh() {
     }
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
+    if (researchState.plan) $('plan-summary').textContent = researchState.plan.summary;
     if (researchState.plan) $('research-plan-text').textContent = 'Your brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
     $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : researchState.plan ? 'Your plan is prepared. Complete the step shown beside Start research.' : 'No research has started yet. Prepare a plan to begin.';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
@@ -108,6 +109,7 @@ async function refresh() {
     }
     $('replies').textContent = replies.length ? replies.map(r => (leads.find(l => l.id === r.lead_id)?.name || r.lead_id) + ' · ' + r.received + '\n' + r.body).join('\n\n') : 'No replies recorded yet.';
     $('jobs').textContent = jobs.length ? jobs.slice().reverse().map(j => j.kind + ' · ' + j.status + ' · ' + j.created + '\n' + j.result).join('\n\n') : 'No jobs yet.';
+    renderWorkspace();
     controls();
   } finally { refreshing = false; }
 }
@@ -155,7 +157,7 @@ async function browserJob(path, body, pending, success) {
   } catch (e) { $('login-progress').textContent = e.message; throw e; }
   finally { await refresh(); }
 }
-$('access-form').onsubmit = event => { event.preventDefault(); run(async () => { token = $('token').value; $('token').value = ''; workspace = null; browserState = null; await refresh(); await checkBrowser(); }); };
+$('access-form').onsubmit = event => { event.preventDefault(); run(async () => { token = $('token').value; $('token').value = ''; workspace = null; browserState = null; await refresh(); showView(workspace.mode === 'demo' || workspace.discovery.ready ? 'discovery' : !connections.codex.signed_in ? 'connections' : 'browser-section'); await checkBrowser(); }); };
 $('refresh').onclick = () => run(refresh);
 $('expand-browser').onclick = () => run(async () => { await $('browser-stage').requestFullscreen(); });
 $('check-browser').onclick = () => run(checkBrowser);
@@ -163,7 +165,7 @@ $('open-browser').onclick = () => run(async () => { await checkBrowser(); openVi
 $('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete verification, then paste your profile URL and verify your account.'); });
 $('verify').onclick = () => run(async () => { if (!$('profile').value.trim()) throw Error('Paste your own LinkedIn profile URL first.'); await browserJob('linkedin/verify', { profile_url: $('profile').value.trim() }, 'Checking the signed-in identity…', 'Account verified. Your workspace is ready.'); });
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
-$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw Error('Choose a target between 1 and 100.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit }); await refresh(); });
+$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit }); await refresh(); });
 $('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
 $('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
 setInterval(() => { if (token && workspace) run(refresh); }, 5000);
@@ -239,3 +241,55 @@ $('google-create').onclick = () => run(async()=>{await api('sheets/create',{});a
 $('google-sheet-form').onsubmit = event => {event.preventDefault();run(async()=>{const result=await connectionAction('connections/google/sheet',{value:$('google-sheet').value.trim()});$('google-message').textContent=result.message;});};
 
 $('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('discovery-prompt').value=researchState.plan.prompt; $('discovery-limit').value=researchState.plan.limit; $('research-history').checked=false; controls(); };
+
+// Navigate between focused screens without recreating the browser or form state.
+const workspaceViews = ['discovery', 'browser-section', 'connections', 'outreach', 'inbox', 'activity'];
+function showView(id) {
+  const selected = workspaceViews.includes(id) ? id : 'discovery';
+  if (workspace && window.location.hash !== '#' + selected) history.replaceState(null, '', '#' + selected);
+  for (const view of workspaceViews) $(view).hidden = !workspace || view !== selected;
+  document.querySelectorAll('.sidebar nav a').forEach(link => {
+    if (link.hash === '#' + selected) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+}
+function renderWorkspace() {
+  $('access').hidden = Boolean(workspace);
+  $('workspace-bar').hidden = !workspace;
+  if (!workspace) return;
+  const demo = workspace.mode === 'demo';
+  const ready = workspace.discovery.ready;
+  $('connection-summary').textContent = demo ? 'Demo workspace · fictional candidates only' :
+    'Research agent: ' + (connections?.codex.signed_in ? 'connected' : 'sign-in needed') +
+    ' · LinkedIn: ' + (workspace.account?.name || 'verification needed') + ' · CRM: saved locally';
+  const link = $('next-action');
+  if (workspace.busy) {
+    $('next-step').textContent = 'Your workspace is working';
+    link.textContent = 'View activity'; link.href = '#activity';
+  } else if (!demo && workspace.linkedin_restriction) {
+    $('next-step').textContent = 'LinkedIn actions are paused';
+    link.textContent = 'Review browser'; link.href = '#browser-section';
+  } else if (!demo && !connections?.codex.signed_in) {
+    $('next-step').textContent = 'First, connect your research agent';
+    link.textContent = 'Connect agent'; link.href = '#connections';
+  } else if (!demo && !workspace.account) {
+    $('next-step').textContent = 'Next, verify your LinkedIn account';
+    link.textContent = 'Set up LinkedIn'; link.href = '#browser-section';
+  } else {
+    $('next-step').textContent = ready ? 'Ready to find your next conversation' : workspace.discovery.reason;
+    link.textContent = 'Go to research'; link.href = '#discovery';
+  }
+  // Collapse the original brief once per new plan, without fighting user edits.
+  const planId = researchState?.plan?.id;
+  if (planId && $('research-brief').dataset.planId !== planId) {
+    if (!$('discovery-prompt').value.trim()) {
+      $('discovery-prompt').value = researchState.plan.prompt;
+      $('discovery-limit').value = researchState.plan.limit;
+    }
+    $('research-brief').open = false;
+    $('research-brief').dataset.planId = planId;
+  }
+  showView(window.location.hash.slice(1));
+}
+window.addEventListener('hashchange', () => showView(window.location.hash.slice(1)));
+showView(window.location.hash.slice(1));
