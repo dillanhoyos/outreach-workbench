@@ -57,7 +57,7 @@ async def main():
   assert await page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
   assert await page.locator('nav a[href="#inbox"]').count()==0
   assert not errors,errors
-  print('PASS: select → generate → edit → save/reopen → approve → exact-text check → simulated send → receipt; desktop/mobile; no JS errors')
+  print('PASS: research → CRM → draft → approve → simulated send → history; iframe retained across modes; refresh recovery; eligibility filters; desktop/mobile; no JS errors')
   await b.close()
 
 with tempfile.TemporaryDirectory(prefix="workbench-ui-") as directory:
@@ -78,4 +78,3 @@ with tempfile.TemporaryDirectory(prefix="workbench-ui-") as directory:
   server.terminate()
   try:server.wait(timeout=5)
   except subprocess.TimeoutExpired:server.kill();server.wait()
-
