@@ -33,10 +33,26 @@ would require TLS, user accounts, per-user storage and additional authorization.
 
 1. Set `WORKBENCH_MODE=live` in `.env`.
 2. Run `docker compose --profile live up --build -d`.
-3. Click **Start LinkedIn login** in the app.
-4. Open http://localhost:7900 and enter `VNC_PASSWORD` from `.env`.
-5. Sign in directly on LinkedIn and complete any 2FA or verification yourself.
-6. Paste your own public LinkedIn profile URL into the app and verify it.
+3. Connect your workspace in the app. In **Your browser, right here**, click
+   **Check connection**. Both the browser driver and viewer must be reachable.
+4. Click **Open browser here**. Enter `VNC_PASSWORD` from `.env` when the embedded
+   viewer asks for a password. You can also open it in a separate tab.
+5. Click **1. Open LinkedIn sign-in**. Wait for the confirmation beside the viewer,
+   then sign in directly inside the browser and complete any 2FA yourself.
+6. Paste your own public LinkedIn profile URL and click **2. Verify my account**.
+   The app displays the last verified identity and rechecks it before actions.
+
+The browser service is optional and is not started by the demo-only command.
+If you see `ERR_CONNECTION_REFUSED`, run the `--profile live` command in step 2;
+check that the browser container is running. The app's connection check probes
+services inside Docker; your local browser must also reach the published viewer
+port. A firewall, missing SSH forward or stopped container can prevent this.
+
+`BROWSER_PORT` defaults to 7900. The app uses that configured port and your current
+hostname for the embedded viewer, so custom ports are supported. On a remote host,
+forward the same app and browser ports over SSH. The app does not receive or put
+the viewer password in its URL. HTTPS hosting/reverse-proxy configuration is not
+provided by this local-only setup.
 
 The app never requests your LinkedIn password or OTP. Chrome retains the session
 in the private browser-profile Docker volume. That volume grants account access;

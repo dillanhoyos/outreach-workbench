@@ -1,0 +1,119 @@
+'use strict';
+let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false;
+const $ = id => document.getElementById(id);
+const split = value => value.split(',').map(x => x.trim()).filter(Boolean);
+function error(message) { $('error').textContent = message; $('error').hidden = !message; }
+async function api(path, body) {
+  const response = await fetch('/api/' + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  const data = await response.json();
+  if (!response.ok) throw Error(typeof data.detail === 'string' ? data.detail : 'Check the entered values and try again.');
+  return data;
+}
+async function run(fn) { try { error(''); await fn(); } catch (e) { error(e.message); } }
+function controls() {
+  const connected = Boolean(workspace), idle = connected && !workspace.busy;
+  for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
+  $('sync').disabled = !idle || workspace.mode !== 'live' || !workspace.sheets_configured;
+  $('check-browser').disabled = !connected || browserChecking;
+  $('open-browser').disabled = !browserState?.available;
+  $('login').disabled = !idle || workspace.mode !== 'live' || !browserState?.available || Boolean(workspace.linkedin_restriction);
+  $('verify').disabled = !idle || workspace.mode !== 'live' || !browserState?.available;
+  $('reset-browser').disabled = !idle || workspace.mode !== 'live';
+}
+async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const [status, leads, replies, jobs] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs'].map(p => api(p)));
+    workspace = status;
+    $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
+    $('status').textContent = (status.busy ? 'A job is running. ' : 'Ready. ') + 'Daily action limit: ' + status.daily_limit + ' (UTC).';
+    $('account-name').textContent = status.account?.name || 'No account verified';
+    $('account-note').textContent = status.account ? 'Last verified account. We check this identity again before reading or sending.' : 'Connect the browser, sign in, then confirm which account will perform actions.';
+    $('restriction').hidden = !status.linkedin_restriction;
+    $('restriction').textContent = status.linkedin_restriction ? 'LinkedIn reported a restriction. Actions are paused; review it in the browser.' : '';
+    $('apollo-state').textContent = status.apollo_configured ? 'Key configured' : 'Not configured';
+    $('jev-state').textContent = status.browser_advisor === 'jev' ? 'Enabled · key configured' : 'Off';
+    $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
+    $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
+    $('leads').replaceChildren();
+    if (!leads.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 4; cell.className = 'empty'; cell.textContent = 'No candidates yet. Start with Find leads.'; }
+    for (const lead of leads) {
+      const tr = document.createElement('tr');
+      for (const value of [lead.name, lead.company + ' / ' + lead.role, lead.status]) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
+      const td = document.createElement('td'), button = document.createElement('button');
+      button.textContent = lead.status === 'approved' ? 'Send approved note' : 'Review';
+      button.disabled = status.busy || !['review', 'approved'].includes(lead.status);
+      button.onclick = () => run(async () => {
+        if (lead.status === 'approved') {
+          if (confirm('Send this reviewed invitation to ' + lead.name + '?\n\n' + lead.note + '\n\n' + (workspace.mode === 'demo' ? 'Demo: simulated only.' : 'This sends a real invitation.'))) await api('outreach', { lead_ids: [lead.id], confirm: true });
+        } else { const note = prompt('Source evidence: ' + lead.evidence + '\n\nReview the profile and enter a note (max 200 characters).'); if (note) await api('leads/' + lead.id + '/approve', { note }); }
+        await refresh();
+      });
+      const a = document.createElement('a'); a.href = lead.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Profile ↗'; td.append(button, a); tr.append(td); $('leads').append(tr);
+    }
+    $('replies').textContent = replies.length ? replies.map(r => (leads.find(l => l.id === r.lead_id)?.name || r.lead_id) + ' · ' + r.received + '\n' + r.body).join('\n\n') : 'No replies recorded yet.';
+    $('jobs').textContent = jobs.length ? jobs.slice().reverse().map(j => j.kind + ' · ' + j.status + ' · ' + j.created + '\n' + j.result).join('\n\n') : 'No jobs yet.';
+    controls();
+  } finally { refreshing = false; }
+}
+async function checkBrowser() {
+  if (browserChecking) return;
+  browserChecking = true; controls(); $('browser-badge').textContent = 'Checking…';
+  try {
+    browserState = await api('browser/status');
+    $('browser-badge').textContent = browserState.available ? 'Services reachable' : 'Browser offline';
+    $('browser-message').textContent = browserState.message;
+    $('browser-help').open = !browserState.available || workspace.mode === 'demo';
+    if (!browserState.available) { $('browser-frame').hidden = true; $('browser-frame').removeAttribute('src'); $('browser-empty').hidden = false; $('external-viewer').hidden = true; $('expand-browser').hidden = true; }
+    if (workspace.mode === 'demo') $('login-progress').textContent = 'Demo mode: set WORKBENCH_MODE=live and start the browser to enable LinkedIn login. See setup below the viewer.';
+  } catch (e) {
+    browserState = null; $('browser-badge').textContent = 'Check failed'; $('browser-help').open = true; throw e;
+  } finally { browserChecking = false; controls(); }
+}
+function openViewer() {
+  if (!browserState?.available) throw Error('Check the browser connection first.');
+  const url = new URL(window.location.href);
+  url.port = String(browserState.viewer_port); url.pathname = '/vnc.html';
+  url.search = '?autoconnect=1&resize=scale'; url.hash = '';
+  // Credentials never go into the iframe URL; noVNC prompts for its own password.
+  if ($('browser-frame').getAttribute('src') !== url.href) $('browser-frame').src = url.href;
+  $('browser-frame').hidden = false; $('browser-empty').hidden = true;
+  $('external-viewer').href = url.href; $('external-viewer').hidden = false; $('expand-browser').hidden = false;
+}
+async function browserJob(path, body, pending, success) {
+  $('login-progress').textContent = pending;
+  try {
+    const result = await api(path, body);
+    workspace.busy = true; controls();
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      const jobs = await api('records/jobs'); const job = jobs.find(j => j.id === result.job_id);
+      if (job && job.status !== 'running') {
+        const receipt = JSON.parse(job.result);
+        if (job.status !== 'completed') throw Error(receipt.message || 'Browser action stopped. Review the browser and activity below.');
+        $('login-progress').textContent = success;
+        await refresh(); return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 750));
+    }
+    throw Error('The browser is still working. Check Workspace activity before trying again.');
+  } catch (e) { $('login-progress').textContent = e.message; throw e; }
+  finally { await refresh(); }
+}
+$('access-form').onsubmit = event => { event.preventDefault(); run(async () => { token = $('token').value; $('token').value = ''; workspace = null; browserState = null; await refresh(); await checkBrowser(); }); };
+$('refresh').onclick = () => run(refresh);
+$('expand-browser').onclick = () => run(async () => { await $('browser-stage').requestFullscreen(); });
+$('check-browser').onclick = () => run(checkBrowser);
+$('open-browser').onclick = () => run(async () => { await checkBrowser(); openViewer(); });
+$('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete verification, then paste your profile URL and verify your account.'); });
+$('verify').onclick = () => run(async () => { if (!$('profile').value.trim()) throw Error('Paste your own LinkedIn profile URL first.'); await browserJob('linkedin/verify', { profile_url: $('profile').value.trim() }, 'Checking the signed-in identity…', 'Account verified. Your workspace is ready.'); });
+$('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
+$('discover').onclick = () => run(async () => { await api('discover', { query: $('query').value, limit: 10, locations: split($('locations').value), domains: split($('domains').value), allow_paid_enrichment: $('credits').checked }); await refresh(); });
+$('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
+$('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
+setInterval(() => { if (token && workspace) run(refresh); }, 5000);

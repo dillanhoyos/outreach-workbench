@@ -8,6 +8,7 @@ services:
     environment:
       WORKBENCH_DATA: /data
       SELENIUM_URL: http://browser:4444
+      BROWSER_PORT: ${BROWSER_PORT:-7900}
     volumes:
       - workbench-data:/data
       - ./secrets:/run/secrets:ro

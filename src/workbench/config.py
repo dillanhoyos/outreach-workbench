@@ -14,6 +14,7 @@ class Settings:
     google_credentials: str
     browser_advisor: str = "none"
     typesafe_key: str = ""
+    browser_port: int = 7900
 
     @classmethod
     def from_env(cls):
@@ -34,7 +35,10 @@ class Settings:
         limit = int(os.getenv('DAILY_SEND_LIMIT', '10'))
         if not 1 <= limit <= 100:
             raise ValueError('DAILY_SEND_LIMIT must be between 1 and 100')
+        browser_port = int(os.getenv('BROWSER_PORT', '7900'))
+        if not 1 <= browser_port <= 65535:
+            raise ValueError('BROWSER_PORT must be between 1 and 65535')
         return cls(Path(os.getenv('WORKBENCH_DATA', './data')), token, mode,
                    os.getenv('SELENIUM_URL', 'http://browser:4444'), limit,
                    os.getenv('APOLLO_API_KEY', ''), os.getenv('GOOGLE_SHEET_ID', ''),
-                   os.getenv('GOOGLE_APPLICATION_CREDENTIALS', ''), advisor, key)
+                   os.getenv('GOOGLE_APPLICATION_CREDENTIALS', ''), advisor, key, browser_port)

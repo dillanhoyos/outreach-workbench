@@ -60,3 +60,14 @@ def test_only_incoming_messages_not_connection_events():
     r=incoming_rows(messages,lead,recipient,'fixture-thread')
     assert len(r)==1 and r[0]['body'].startswith('=not')
     assert incoming_rows(messages,lead,recipient,'fixture-thread')==r
+
+
+def test_replaced_browser_has_actionable_login_error(tmp_path):
+    from selenium.common.exceptions import InvalidSessionIdException
+    class ReplacedDriver(Driver):
+        def get(self, url):
+            raise InvalidSessionIdException('internal driver output')
+    b = browser(tmp_path, ReplacedDriver())
+    with pytest.raises(ProviderError, match='Reset browser connection') as error:
+        b.start_login()
+    assert 'internal driver output' not in str(error.value)

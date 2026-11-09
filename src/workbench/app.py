@@ -9,6 +9,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .config import Settings
 from .store import Store, now
@@ -65,6 +66,7 @@ def create_app(settings=None, provider=None):
         raise RuntimeError('Another Workbench process owns this data directory') from None
     store=Store(settings.data_dir/settings.mode)
     app=FastAPI(title='Outreach Workbench',version='0.1.0',docs_url=None,redoc_url=None,openapi_url=None)
+    app.mount('/assets', StaticFiles(directory=Path(__file__).parent/'static'), name='assets')
     # Live implementation supplied independently, never silently fall back to demo.
     if provider is None:
         if settings.mode=='demo':provider=DemoProvider()
@@ -127,6 +129,11 @@ def create_app(settings=None, provider=None):
                 'linkedin_restriction':store.setting('linkedin_restriction'),
                 'reader_report':store.setting('last_reader_report')}
 
+    @app.get('/api/browser/status',dependencies=[Depends(auth)])
+    def browser_connection():
+        from .browser_status import browser_status
+        return browser_status(settings)
+
     @app.get('/api/schema',dependencies=[Depends(auth)])
     def schema():return app.openapi()
 
@@ -186,13 +193,20 @@ def create_app(settings=None, provider=None):
         return provider.linkedin
 
     @app.post('/api/linkedin/login',dependencies=[Depends(auth)])
-    def login():return job('linkedin-login',lambda:linkedin().start_login())
+    def login():
+        browser = linkedin()
+        from .browser_status import browser_status
+        if not browser_status(settings)['available']:
+            raise HTTPException(503, 'Browser is unavailable. Run docker compose --profile live up --build -d --wait, then check again.')
+        return job('linkedin-login',browser.start_login)
 
     @app.post('/api/linkedin/reset',dependencies=[Depends(auth)])
     def reset():return job('linkedin-reset',lambda:linkedin().reset_connection())
 
     @app.post('/api/linkedin/verify',dependencies=[Depends(auth)])
-    def verify(body:AccountRequest):return job('linkedin-verify',lambda:linkedin().verify_account(body.profile_url))
+    def verify(body:AccountRequest):
+        browser = linkedin()
+        return job('linkedin-verify',lambda:browser.verify_account(body.profile_url))
 
     @app.post('/api/linkedin/restriction/clear',dependencies=[Depends(auth)])
     def clear_restriction(body:RestrictionRequest):

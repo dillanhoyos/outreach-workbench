@@ -34,6 +34,7 @@ Open http://localhost:8080. Copy `WORKBENCH_TOKEN` from your private `.env` into
 login field. Click **Find leads**, review a fictional candidate and write a note,
 then simulate sending and read the fictional response. Nothing is sent in demo mode.
 The UI polls job history; long operations return a job ID immediately.
+The demo does not start Chrome. The browser panel explains how to enable it.
 
 The container runs as a non-root user. SQLite state lives in a named Docker volume.
 Demo and live data have separate databases, so fictional contacts cannot be sent
@@ -62,6 +63,13 @@ See [Authentication](docs/AUTHENTICATION.md) for each connection. After editing
 ```sh
 docker compose --profile live up --build -d
 ```
+
+After startup, connect the workspace and click **Check connection** in the browser
+panel. Click **Open browser here**, enter your `VNC_PASSWORD`, then click
+**Open LinkedIn sign-in**. Sign in inside the embedded browser, paste your own
+profile URL, and verify the account. Login progress and failures appear beside
+the viewer. A browser-offline state shows the startup instructions instead of
+an inactive localhost link. See [browser troubleshooting](docs/AUTHENTICATION.md#linkedin).
 
 - **Lead finder:** Apollo title, location and company-domain filters. Enrichment
   retrieves LinkedIn URLs and may consume credits; consent is explicit per search.

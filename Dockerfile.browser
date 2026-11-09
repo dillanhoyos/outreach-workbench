@@ -1,4 +1,7 @@
 FROM selenium/standalone-chromium:4.52.0-20261101
 USER root
 RUN mkdir -p /home/seluser/workbench-profile && chown seluser:seluser /home/seluser/workbench-profile && chmod 700 /home/seluser/workbench-profile
+COPY --chmod=755 scripts/browser-entrypoint.sh /opt/bin/workbench-entrypoint.sh
 USER seluser
+CMD ["/opt/bin/workbench-entrypoint.sh"]
+HEALTHCHECK --interval=5s --timeout=5s --start-period=15s --retries=12 CMD curl --max-time 2 -fsS http://localhost:4444/status >/dev/null && curl --max-time 2 -fsS http://localhost:7900/vnc.html >/dev/null

@@ -14,6 +14,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.command import Command
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException, InvalidSessionIdException
 from .store import profile_key
 from .errors import ProviderError
 
@@ -71,6 +72,7 @@ class LinkedInBrowser:
             else:
                 self.driver=webdriver.Remote(command_executor=self.settings.selenium_url,options=options)
                 self.store.setting('browser_session',{'id':self.driver.session_id,'capabilities':self.driver.capabilities})
+                self.driver.maximize_window()
             self.driver.set_page_load_timeout(35)
         return self.driver
 
@@ -111,13 +113,19 @@ class LinkedInBrowser:
         self.browser().get(url);self.check()
 
     def start_login(self):
-        self.browser().get('https://www.linkedin.com/login')
+        try:
+            self.browser().get('https://www.linkedin.com/login')
+        except InvalidSessionIdException:
+            raise ProviderError('Saved browser session is unavailable. Restart the browser container and use Reset browser connection; saved cookies are preserved.') from None
         return {'message':'Open the browser viewer, sign in and complete 2FA. Then verify your profile URL.'}
 
     def verify_account(self,expected):
         key=profile_key(expected)
         self.navigate('https://www.linkedin.com/in/me/')
-        WebDriverWait(self.browser(),12).until(lambda d: d.find_elements(By.CSS_SELECTOR,'main h1'))
+        try:
+            WebDriverWait(self.browser(),12).until(lambda d: d.find_elements(By.CSS_SELECTOR,'main h1'))
+        except TimeoutException:
+            raise ProviderError('Could not read your profile. Complete sign-in and any verification in the browser, then try Verify my account again.') from None
         actual=self.browser().current_url
         if profile_key(actual)!=key:raise ProviderError('The signed-in account does not match the supplied profile URL.')
         name=self.browser().find_element(By.CSS_SELECTOR,'main h1').text.strip()
