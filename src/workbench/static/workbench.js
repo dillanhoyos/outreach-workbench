@@ -17,7 +17,19 @@ function controls() {
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
   for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
   $('discover').disabled = !idle || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
-  $('research-start').disabled = !idle || !workspace.discovery.ready || !researchState?.plan || !$('research-history').checked || researchState.plan.prompt !== $('discovery-prompt').value.trim() || researchState.plan.limit !== Number($('discovery-limit').value);
+  const plan = researchState?.plan;
+  const changed = Boolean(plan) && (plan.prompt !== $('discovery-prompt').value.trim() || plan.limit !== Number($('discovery-limit').value));
+  const blocked = !connected ? 'Connect your workspace first.'
+    : workspace.busy ? 'Wait for the current job to finish.'
+    : !plan ? 'Prepare a research plan first.'
+    : !workspace.discovery.ready ? workspace.discovery.reason || 'Complete the research connections first.'
+    : changed ? 'Your prompt or target differs from this saved plan. Restore it below, or prepare a new plan.'
+    : !$('research-history').checked ? 'Confirm the CRM history checkbox above to continue.' : '';
+  $('research-start').disabled = Boolean(blocked);
+  $('research-start-help').textContent = blocked || 'Ready. Start research will browse profiles and save candidates to your local CRM.';
+  $('research-start-browser').hidden = !connected || Boolean(workspace.account) || workspace.mode !== 'live';
+  $('research-use-plan').hidden = !changed;
+  $('research-use-plan').disabled = !idle;
   $('research-stop').disabled = !connected || !workspace.busy;
   $('sync').disabled = !idle || workspace.mode !== 'live' || !workspace.sheets_configured;
   $('check-browser').disabled = !connected || browserChecking;
@@ -61,8 +73,8 @@ async function refresh() {
     if (status.mode === 'live' && status.discovery.plan_ready && !status.discovery.ready) $('discovery-state').textContent = 'You can prepare your plan now. ' + status.discovery.reason;
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
-    if (researchState.plan) $('research-plan-text').textContent = researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
-    $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : 'No research has started yet. Prepare a plan to begin.';
+    if (researchState.plan) $('research-plan-text').textContent = 'Your brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
+    $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : researchState.plan ? 'Your plan is prepared. Complete the step shown beside Start research.' : 'No research has started yet. Prepare a plan to begin.';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
     $('leads').replaceChildren();
@@ -202,3 +214,5 @@ $('google-disconnect').onclick = () => run(()=>connectionAction('connections/goo
 $('google-create').onclick = () => run(async()=>{await api('sheets/create',{});await refresh();});
 
 $('google-sheet-form').onsubmit = event => {event.preventDefault();run(async()=>{const result=await connectionAction('connections/google/sheet',{value:$('google-sheet').value.trim()});$('google-message').textContent=result.message;});};
+
+$('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('discovery-prompt').value=researchState.plan.prompt; $('discovery-limit').value=researchState.plan.limit; $('research-history').checked=false; controls(); };
