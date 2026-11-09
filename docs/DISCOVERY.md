@@ -4,7 +4,9 @@
 
 1. Start the app in live mode. Browser setup can be completed after preparing a plan.
 2. Connect Codex using ChatGPT sign-in or an OpenAI API key. Connect Jev optionally.
-3. Write a brief including sector, geography and role families. Start with 3 leads.
+3. Use **Refine audience** to discuss roles, companies, geography and exclusions
+   with the research agent. It asks focused questions and updates the editable
+   **Working brief**. Conversation history stays on this installation. Start with 3 leads.
 4. Click **Prepare research plan**. This uses your model quota to produce search
    queries and qualification criteria, but does not visit LinkedIn profiles yet.
 5. Review the plan and confirm that your local CRM contains previous contacts and
@@ -90,3 +92,21 @@ still requires full model qualification and source checks. Jev currently priorit
 one observed profile per search; Selenium performs navigation. Activity text is
 excluded from qualification. An activity link may supply an employer URL only when
 its complete label occurs in the person’s own headline; it is not role evidence.
+
+## Refine before searching
+
+The conversation is planning only: it never navigates or saves leads. Each reply
+updates the working brief; you can edit that brief directly before preparing a plan.
+A new refinement invalidates the prior plan, including when the model fails, so an
+old audience cannot accidentally run. Use **New brief** to clear the conversation
+and plan without deleting CRM contacts. Conversations are limited to 20 exchanges.
+
+## Watch research decisions
+
+**Research decisions** shows the latest run's query, observed profile count,
+Jev prioritization, profile navigation, employer selection, qualification, skips
+and saves. Source links and saved role quotes let you inspect the evidence.
+These are action summaries and explicit decision explanations, not private model
+chain-of-thought. Jev currently returns an ordering choice, not a detailed rationale;
+the log does not invent one. Older runs have fewer event types. Full activity is
+available below the cards. No search is launched by sending a conversation message.

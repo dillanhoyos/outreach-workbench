@@ -1,5 +1,5 @@
 'use strict';
-let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false, researchRestored = false, researchSeenJobId = null;
+let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false, researchRestored = false, researchSeenJobId = null, briefSubmitting = false, briefRevision = null, briefJobId = null, decisionRevision = null;
 const $ = id => document.getElementById(id);
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body, method) {
@@ -16,6 +16,9 @@ async function run(fn) { try { error(''); await fn(); } catch (e) { error(e.mess
 function controls() {
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
   for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
+  $('brief-send').disabled = !idle || briefSubmitting || workspace.mode !== 'live' || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
+  $('brief-reset').disabled = !idle || briefSubmitting;
+  $('discovery-prompt').disabled = !idle || briefSubmitting;
   $('discover').disabled = !idle || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
   const plan = researchState?.plan;
   const changed = Boolean(plan) && (plan.prompt !== $('discovery-prompt').value.trim() || plan.limit !== Number($('discovery-limit').value));
@@ -79,12 +82,17 @@ async function refresh() {
       researchJobId = latestResearch?.id || null;
       researchSeenJobId = researchJobId;
       researchRestored = true;
-      if (latestResearch?.status === 'running') $('research-activity').open = true;
+      if (latestResearch?.status === 'running') {
+        $('research-activity').open = false;
+        $('planning-conversation').open = false;
+      }
     }
     if (researchJobId) {
       const launch = jobs.find(job => job.id === researchJobId);
       if (launch) $('research-launch-status').textContent = researchLaunchMessage(launch);
     }
+    renderBrief(jobs);
+    renderDecisions();
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
     if (researchState.plan) $('plan-summary').textContent = researchState.plan.summary;
@@ -219,6 +227,7 @@ $('research-start').onclick = () => run(async () => {
   try {
     const response=await api('discover',{prompt:plan.prompt,limit:plan.limit,plan_id:plan.id,history_ack:$('research-history').checked});
     researchJobId=response.job_id;
+    $('planning-conversation').open=false;
     $('research-launch-status').textContent='Research request accepted. Waiting for the browser…';
     await refresh();
   } catch (e) {
@@ -302,4 +311,84 @@ function researchLaunchMessage(job) {
   const stopped = result.reason && !normal.includes(result.reason);
   return (stopped ? 'Research stopped: ' : 'Research finished: ') +
     (result.staged ?? result.added ?? 0) + ' candidates saved. ' + (result.reason || '').replaceAll('_', ' ');
+}
+
+function renderBrief(jobs) {
+  const conversation=researchState?.conversation;
+  if (conversation && conversation.revision !== briefRevision) {
+    briefRevision=conversation.revision;
+    const log=$('brief-chat');log.replaceChildren();
+    if (!conversation.messages.length) {
+      const welcome=document.createElement('p');welcome.className='chat-welcome';
+      welcome.textContent='Tell me who you’re looking for. We can narrow the roles, companies, location and exclusions together.';log.append(welcome);
+    }
+    for (const message of conversation.messages) {
+      const bubble=document.createElement('div');bubble.className='chat-message '+(message.role==='user'?'from-user':'from-agent');
+      const name=document.createElement('strong');name.textContent=message.role==='user'?'You':'Research agent';
+      const text=document.createElement('p');text.textContent=message.content;bubble.append(name,text);log.append(bubble);
+    }
+    if (conversation.brief || conversation.messages.length) $('discovery-prompt').value=conversation.brief;
+    requestAnimationFrame(()=>{log.scrollTop=log.scrollHeight;});
+    if (conversation.messages.length) $('research-brief').open=false;
+  }
+  const job=briefJobId ? jobs.find(j=>j.id===briefJobId) : !conversation?.messages.length ? null : jobs.filter(j=>j.kind==='discovery-brief').sort((a,b)=>b.created.localeCompare(a.created))[0];
+  if (job) {
+    const result=JSON.parse(job.result || '{}');
+    $('brief-status').textContent=job.status==='running'?'Thinking about your audience…':job.status==='completed'?'Working brief updated. Keep refining or prepare your plan.':'Could not refine: '+(result.message || job.status);
+  } else if (workspace.mode==='demo') $('brief-status').textContent='Conversation requires live mode and your research-agent connection. Demo can preview fictional leads below.';
+}
+$('brief-form').onsubmit=event=>{event.preventDefault();run(async()=>{
+  const message=$('brief-message').value.trim();
+  if(message.length<2)throw Error('Tell the agent what you want to refine.');
+  briefSubmitting=true;controls();$('brief-status').textContent='Sending your message…';
+  try {
+    const result=await api('discovery/brief',{message,brief:$('discovery-prompt').value.trim()});
+    briefJobId=result.job_id;$('brief-message').value='';$('research-history').checked=false;
+    $('research-launch-status').textContent='';researchJobId=null;
+    await refresh();
+  } catch(e){$('brief-status').textContent=e.message;throw e;}
+  finally{briefSubmitting=false;controls();}
+});};
+$('brief-reset').onclick=()=>run(async()=>{
+  await api('discovery/brief/reset',{});briefJobId=null;briefRevision=null;
+  $('brief-message').value='';$('discovery-prompt').value='';$('research-history').checked=false;
+  $('brief-status').textContent='New brief. Your existing CRM contacts are unchanged.';
+  $('research-brief').open=true;$('planning-conversation').open=true;await refresh();
+});
+
+function decisionSummary(event) {
+  const d=JSON.parse(event.detail || '{}');
+  const names={started:'Run started',checking_browser:'Checking browser',searching:'Searching LinkedIn',search:'Search results',ranking:'Prioritizing with Jev',prioritized:'First profile in research order',visiting:'Opening profile',selecting_employer:'Finding the current employer',employer_selected:'Checking company',qualifying:'Evaluating fit with Codex',staged_for_review:'Saved for your review',insufficient_evidence:'Skipped: evidence did not qualify',current_employer_unclear:'Skipped: employer unclear',company_replied_or_held:'Skipped: company excluded',previously_visited_or_reserved:'Skipped: previously visited',known_contact:'Skipped: already in CRM',own_profile:'Skipped: your own profile',duplicate:'Skipped: duplicate',stopped:'Research stopped',finished:'Run finished'};
+  let text=d.reason || '';
+  if(event.kind==='started')text='Target: '+d.plan.limit+' candidates. '+d.plan.summary;
+  if(event.kind==='search')text=d.observed_profiles+' profile links observed for '+d.query;
+  if(event.kind==='finished')text=d.staged+' saved · '+d.visited+' profiles visited · '+d.seconds+' seconds. '+(d.reason || '').replaceAll('_',' ');
+  if(event.kind==='previously_visited_or_reserved')text='Already inspected or reserved by a prior run; not revisited automatically.';
+  if(event.kind==='known_contact')text='This profile is already in your local CRM.';
+  return {title:names[event.kind] || event.kind.replaceAll('_',' '),text,query:d.query,url:d.url,quote:d.role_quote};
+}
+function renderDecisions() {
+  const events=researchState?.events || [];
+  $('research-decisions').hidden=!events.length;
+  if(!events.length)return;
+  const revision=events[0].id+':'+Boolean(researchState.active);
+  if(revision===decisionRevision)return;
+  decisionRevision=revision;
+  const run=events[0].run_id;
+  const current=events.filter(e=>e.run_id===run).slice(0,16);
+  $('research-live-step').textContent=(researchState.active?'Now: ':'Latest run: ')+decisionSummary(current[0]).title;
+  const log=$('decision-log');log.dataset.runId=run;log.replaceChildren();
+  for(const event of current) {
+    const detail=decisionSummary(event),card=document.createElement('article');card.className='decision-card';
+    const title=document.createElement('strong');title.textContent=detail.title;
+    const text=document.createElement('p');text.textContent=detail.text;card.append(title,text);
+    if(detail.query && event.kind!=='search') {const query=document.createElement('p');query.className='decision-query';query.textContent=detail.query;card.append(query);}
+    if(detail.quote){const quote=document.createElement('blockquote');quote.textContent=detail.quote;card.append(quote);}
+    if(detail.url) {
+      try {const url=new URL(detail.url);if(url.protocol==='https:' && (url.hostname==='linkedin.com' || url.hostname.endsWith('.linkedin.com'))) {
+        const link=document.createElement('a');link.href=url.href;link.textContent='View source ↗';link.target='_blank';link.rel='noopener noreferrer';card.append(link);
+      }}catch(_){/* Untrusted source URLs remain unlinked. */}
+    }
+    log.append(card);
+  }
 }

@@ -12,7 +12,7 @@ def test_start_research_explains_each_gate():
 const nodes={}; const $=id=>nodes[id]??=( {value:'',checked:false,hidden:false,disabled:false,textContent:''} );
 let workspace={mode:'live',busy:false,account:null,discovery:{ready:false,reason:'Sign in to Codex.'}};
 let researchState={plan:{prompt:'Find founders',limit:3}};
-let browserState=null,browserChecking=false,connectionBusy=false,connections=null,researchSubmitting=false;
+let browserState=null,browserChecking=false,connectionBusy=false,connections=null,researchSubmitting=false,briefSubmitting=false;
 $('discovery-prompt').value='Find founders';$('discovery-limit').value='3';$('research-history').checked=true;
 '''+controls+'''
 controls();assert.equal($('research-start').disabled,false);
@@ -63,7 +63,7 @@ showView('connections');assert.equal($('browser-section').hidden,true);
 @pytest.mark.skipif(not shutil.which('node'), reason='Node is required for UI logic checks')
 def test_research_result_distinguishes_stopped_worker_from_success():
     script = Path('src/workbench/static/workbench.js').read_text()
-    code = "const assert=require('node:assert/strict');\n" + script[script.index('function researchLaunchMessage('):] + '''
+    code = "const assert=require('node:assert/strict');\n" + script[script.index('function researchLaunchMessage('):script.index('function renderBrief(')] + '''
 assert.match(researchLaunchMessage({status:'completed',result:JSON.stringify({staged:0,reason:'LinkedIn sign-in or verification required.'})}), /^Research stopped: 0 candidates saved. LinkedIn sign-in/);
 assert.match(researchLaunchMessage({status:'completed',result:JSON.stringify({staged:3,reason:'target_reached'})}), /^Research finished: 3 candidates saved/);
 assert.match(researchLaunchMessage({status:'interrupted',result:'{}'}), /Research stopped: interrupted/);

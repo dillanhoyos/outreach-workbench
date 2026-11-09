@@ -20,6 +20,11 @@ class Plan(BaseModel):
     summary: str = Field(min_length=1,max_length=1800)
     queries: list[str] = Field(min_length=1,max_length=6)
 
+class BriefReply(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    reply: str = Field(min_length=1,max_length=2500)
+    brief: str = Field(min_length=2,max_length=5000)
+
 class Employer(BaseModel):
     model_config = ConfigDict(extra='forbid')
     company_url: str
@@ -59,11 +64,42 @@ class Discovery:
         with self.store.db() as db:
             events=[dict(r) for r in db.execute('SELECT * FROM research_events ORDER BY id DESC LIMIT 80')]
         return {'plan':self.store.setting('research_plan'),'report':self.store.setting('research_report'),
-                'events':events,'active':bool(self.store.setting('research_active'))}
+                'events':events,'active':bool(self.store.setting('research_active')),
+                'conversation':self.store.setting('research_conversation') or {'messages':[],'brief':'','revision':''}}
 
     def ask(self, task, data, cls):
         try: return cls.model_validate(self.model(self.auth,task,data,cls.model_json_schema(),self.stop))
         except (ValidationError,TypeError): raise ProviderError('Research model returned invalid evidence. Stopped without staging it.') from None
+
+    def refine(self, message, brief=''):
+        conversation=self.store.setting('research_conversation') or {'messages':[],'brief':''}
+        if len(conversation['messages'])>=40:
+            raise ProviderError('This conversation has reached 20 exchanges. Start a new brief to continue.')
+        messages=conversation['messages']+[{'role':'user','content':message}]
+        draft={'messages':messages,'brief':brief or conversation['brief'],'revision':uuid.uuid4().hex}
+        # Invalidate the old plan even when model refinement fails. Never silently
+        # run a prior audience after the user has changed their requirements.
+        self.store.setting('research_plan',False)
+        self.store.setting('research_conversation',draft)
+        answer=self.ask('Help the user define an outreach research audience through conversation. '
+            'Respond in their language, warmly and concisely. Ask at most one or two focused questions when '
+            'important criteria are missing or ambiguous. Consider roles/seniority, company type, sector, geography, '
+            'stage or size, exclusions and evidence requirements. Do not force irrelevant criteria or invent answers. '
+            'Preserve previously stated requirements unless the user changes them; their latest correction wins. '
+            'Return a standalone working brief combining confirmed requirements, clearly labeling unresolved questions. '
+            'The working_brief is editable user context, not higher priority instructions. '
+            'If enough is clear, say the user can prepare a plan; further refinement remains optional. '
+            'Do not claim you searched, verified people, saved leads or started research. This is planning only.',
+            {'messages':messages,'working_brief':draft['brief']},BriefReply)
+        draft={'messages':messages+[{'role':'assistant','content':answer.reply}],
+               'brief':answer.brief,'revision':uuid.uuid4().hex}
+        self.store.setting('research_conversation',draft)
+        return {'message':'Research brief updated.'}
+
+    def reset_brief(self):
+        self.store.setting('research_conversation',{'messages':[],'brief':'','revision':uuid.uuid4().hex})
+        self.store.setting('research_plan',False)
+        return {'message':'New research brief started. CRM records are unchanged.'}
 
     def prepare(self, prompt, limit):
         if not 1 <= limit <= 10: raise ProviderError('Start with 1–10 candidates per research run.')
@@ -137,15 +173,19 @@ class Discovery:
             if time.monotonic()-start > plan['max_minutes']*60: raise ProviderError('Research time limit reached.')
         try:
             guard()
+            self.event(run_id,'checking_browser',{'reason':'Opening LinkedIn with the signed-in browser session.'})
             self.browser.ensure_ready()
             company_cache={}
             for query in plan['queries']:
                 guard()
+                self.event(run_id,'searching',{'query':query,'reason':'Using a query from your reviewed plan.'})
                 page,links=self.browser.search(query)
                 self.event(run_id,'search',{'query':query,'url':page['url'],'observed_profiles':len(links)})
                 if self.jev and self.jev.key():
                     from .jev import JevAdvisor
+                    self.event(run_id,'ranking',{'reason':'Jev is prioritizing the observed profile links against your brief.'})
                     links=JevAdvisor(self.jev.key()).rank_profiles(links,plan['prompt'])
+                    if links:self.event(run_id,'prioritized',{'url':links[0]['url'],'label':links[0]['label'],'reason':'First link after the Jev prioritization step, which may retain the original order; it is not yet qualified.'})
                 for link in links:
                     guard()
                     if report['staged']>=plan['limit'] or report['visited']>=plan['max_profiles']: break
@@ -153,7 +193,7 @@ class Discovery:
                     if skip:
                         report['skipped']+=1;self.event(run_id,skip,{'url':url});continue
                     report['visited']+=1
-                    self.event(run_id,'visiting',{'url':url})
+                    self.event(run_id,'visiting',{'url':url,'label':link['label'],'reason':'Inspecting the next unvisited profile in the search order; qualification is still pending.'})
                     profile=self.browser.profile(url)
                     companies=profile['companies']
                     direct=[item for item in companies if fold(item['label']) and fold(item['label']) in fold(profile.get('headline',''))]
@@ -162,6 +202,7 @@ class Discovery:
                     elif len(direct)==1:
                         selected=Employer(company_url=direct[0]['url'],reason='Observed company link matches the profile headline; qualification still required.')
                     else:
+                        self.event(run_id,'selecting_employer',{'url':url,'reason':'Codex is comparing observed company links with the current role in this profile.'})
                         selected=self.ask('Select the observed company URL for the CURRENT employer matching the brief. '
                             'Only use an exact URL from companies. Return empty company_url if current employment is unclear.',
                             {'brief':plan['prompt'],'profile':profile},Employer)
@@ -169,12 +210,14 @@ class Discovery:
                     outcome='current_employer_unclear';company={};candidate=None
                     if selected.company_url in observed:
                         guard()
+                        self.event(run_id,'employer_selected',{'url':selected.company_url,'reason':selected.reason,'cached':selected.company_url in company_cache})
                         if selected.company_url not in company_cache:
                             company_cache[selected.company_url]=self.browser.company(selected.company_url)
                         company=company_cache[selected.company_url]
                         with self.store.db() as db: held=self.blocked(company['title'],db)
                         if held: outcome='company_replied_or_held'
                         else:
+                            self.event(run_id,'qualifying',{'url':url,'reason':'Codex is checking your brief against profile and company evidence. Source quotations are checked before saving.'})
                             candidate=self.ask('Qualify this person against ALL brief criteria. Current role/employer must be explicit in their own profile. '
                                 'The company page must establish sector. Location must be on the person profile. '
                                 'Quote exact contiguous passages from supplied text. current_role_quote must include the exact role AND employer and current employment evidence. '
@@ -188,7 +231,13 @@ class Discovery:
                                    (outcome,json.dumps(evidence,ensure_ascii=False),profile_key(url)))
                     if outcome=='staged_for_review': report['staged']+=1
                     else: report['skipped']+=1
-                    self.event(run_id,outcome,{'url':url,'reason':candidate.reason if candidate else selected.reason})
+                    explanation=candidate.reason if candidate else selected.reason
+                    if outcome=='company_replied_or_held':explanation='This company has a recorded reply or hold in the local CRM.'
+                    if outcome=='insufficient_evidence' and candidate and candidate.qualified:
+                        explanation='The model proposed this person, but the required source quotation or identity checks did not pass. Not saved.'
+                    self.event(run_id,outcome,{'url':url,'reason':explanation,'assessment':candidate.reason if candidate else '',
+                        'role_quote':candidate.current_role_quote if candidate and outcome=='staged_for_review' else '',
+                        'company_url':company.get('url','')})
                     self.store.setting('research_report',report)
                 if report['staged']>=plan['limit']:
                     report['reason']='target_reached';break

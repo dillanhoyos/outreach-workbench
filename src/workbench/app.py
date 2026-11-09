@@ -31,6 +31,11 @@ class DiscoveryRequest(BaseModel):
     plan_id: str = Field(default="",max_length=64)
     history_ack: bool = False
 
+class BriefMessage(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    message: str = Field(min_length=2,max_length=3000)
+    brief: str = Field(default='',max_length=5000)
+
 class SheetDestination(BaseModel):
     value: str = Field(min_length=10,max_length=500)
 
@@ -218,7 +223,7 @@ def create_app(settings=None, provider=None):
     def job(kind,fn):
         if not busy.acquire(blocking=False):raise HTTPException(409,'A job is already running')
         ident=uuid.uuid4().hex
-        if kind in ('discovery','discovery-plan'):research.stop.clear()
+        if kind in ('discovery','discovery-plan','discovery-brief'):research.stop.clear()
         try:
             with store.db() as db:db.execute('INSERT INTO jobs(id,kind,status,created) VALUES(?,?,?,?)',(ident,kind,'running',now()))
         except Exception:
@@ -294,6 +299,18 @@ def create_app(settings=None, provider=None):
 
     @app.get('/api/discovery/state',dependencies=[Depends(auth)])
     def research_state():return research.state()
+
+    @app.post('/api/discovery/brief',dependencies=[Depends(auth)])
+    def refine_brief(body:BriefMessage):
+        if settings.mode!='live' or not discovery_status().get('plan_ready'):
+            raise HTTPException(400,'Connect your research agent to discuss your audience.')
+        if len(body.message.strip())<2:raise HTTPException(400,'Describe what you want to refine.')
+        return job('discovery-brief',lambda:research.refine(body.message.strip(),body.brief.strip()))
+
+    @app.post('/api/discovery/brief/reset',dependencies=[Depends(auth)])
+    def reset_brief():
+        with connection_idle():
+            return research.reset_brief()
 
     @app.post('/api/discovery/plan',dependencies=[Depends(auth)])
     def research_plan(body:DiscoveryRequest):
