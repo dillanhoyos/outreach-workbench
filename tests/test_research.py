@@ -140,3 +140,14 @@ def test_selected_time_is_validated_and_stored_in_plan(tmp_path):
         with pytest.raises(ProviderError,match='time limit'):
             engine.prepare('Find founders',3,max_minutes=invalid)
         with pytest.raises(ValidationError):DiscoveryRequest(prompt='Find founders',max_minutes=invalid)
+
+
+def test_optional_visit_cap_validation(tmp_path):
+    from workbench.app import DiscoveryRequest
+    from pydantic import ValidationError
+    store,browser,engine,plan=setup(tmp_path)
+    assert plan['max_profiles']==0
+    assert engine.prepare('Find founders',3,max_profiles=80)['max_profiles']==80
+    for invalid in (-1,501,1.5,True):
+        with pytest.raises(ProviderError,match='visit limit'):engine.prepare('Find founders',3,max_profiles=invalid)
+        with pytest.raises(ValidationError):DiscoveryRequest(prompt='Find founders',max_profiles=invalid)

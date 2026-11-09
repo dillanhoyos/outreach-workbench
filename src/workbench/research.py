@@ -116,7 +116,7 @@ class Discovery:
                 'conversation':self.store.setting('research_conversation') or {'messages':[],'brief':'','revision':''}}
 
     def ask(self, task, data, cls):
-        try: return cls.model_validate(self.model(self.auth,task,data,cls.model_json_schema(),self.stop))
+        try: return cls.model_validate(self.model(self.auth,task,data,cls.model_json_schema(),getattr(self,"_run_stop",self.stop)))
         except (ValidationError,TypeError): raise ProviderError('Research model returned invalid evidence. Stopped without staging it.') from None
 
     def refine(self, message, brief=''):
@@ -163,7 +163,8 @@ class Discovery:
         self.store.setting('research_plan',False)
         return {'message':'New research brief started. CRM records are unchanged.'}
 
-    def prepare(self, prompt, limit, web_first=True, recheck_failed=False, profile_url="", max_minutes=15):
+    def prepare(self, prompt, limit, web_first=True, recheck_failed=False, profile_url="", max_minutes=15, max_profiles=0):
+        if type(max_profiles) is not int or not 0 <= max_profiles <= 500: raise ProviderError('Choose a visit limit from 1 to 500, or 0 for time only.')
         if type(max_minutes) is not int or not 1 <= max_minutes <= 60: raise ProviderError('Choose a research time limit from 1 to 60 minutes.')
         if not 1 <= limit <= 10: raise ProviderError('Start with 1–10 candidates per research run.')
         if profile_url:
@@ -177,7 +178,7 @@ class Discovery:
         if any(not q.strip() or len(q)>250 or '://' in q for q in plan.queries):
             raise ProviderError('Research plan contained an invalid search query.')
         result={'id':uuid.uuid4().hex,'prompt':prompt,'limit':limit,**plan.model_dump(),
-                'max_profiles':min(limit*5,30),'max_minutes':max_minutes,'created':now(),'web_first':web_first,'recheck_failed':recheck_failed,'profile_url':profile_url}
+                'max_profiles':max_profiles,'max_minutes':max_minutes,'created':now(),'web_first':web_first,'recheck_failed':recheck_failed,'profile_url':profile_url}
         self.store.setting('research_plan',result)
         return result
 
@@ -267,7 +268,7 @@ class Discovery:
         from .research_web import discover
         def remaining():
             guard()
-            return report['staged']<plan['limit'] and report['visited']<plan['max_profiles']
+            return report['staged']<plan['limit'] and (not plan['max_profiles'] or report['visited']<plan['max_profiles'])
         if seeds is not None:
             for seed in seeds:
                 guard()
@@ -278,14 +279,25 @@ class Discovery:
                 yield matched or [seed]
             # A deliberately targeted run must never expand to unrelated people.
             if plan.get('profile_url'):return
-        for round_number in range(3):
+        round_number=0
+        tried_queries=list(plan["queries"])
+        while remaining():
+            round_number+=1
             if not remaining():return
             self.event(run_id,'expanding_web',{'reason':f'{report["staged"]}/{plan["limit"]} saved. Two web workers are finding primary company evidence.'})
-            web_plan={**plan,'limit':plan['limit']-report['staged'],'exclude_visited':True}
+            with self.store.db() as db:
+                recent=[json.loads(r['detail']) for r in db.execute("SELECT detail FROM research_events WHERE run_id=? AND kind IN ('web_source','web_excluded','insufficient_evidence') ORDER BY id DESC LIMIT 30",(run_id,))]
+            web_plan={**plan,'limit':plan['limit']-report['staged'],'exclude_visited':True,
+                'round':round_number,'previous_results':recent}
+            if round_number>1:
+                revised=self.ask('Prepare NEW web search queries for the same audience. Earlier results are exhausted. Try other companies and terminology without relaxing any requirement.',
+                    {'brief':plan['prompt'],'previous_queries':tried_queries[-60:],'recent_results':recent},Plan)
+                web_plan['queries']=revised.queries
+                tried_queries.extend(revised.queries)
             for links in self._web_pool.batches(web_plan):
                 yield self.fresh_links(links,plan,run_id)
                 if not remaining():return
-        if remaining():report['reason']='discovery_budget_exhausted'
+
 
     def run(self, plan_id, history_ack):
         plan=self.store.setting('research_plan')
@@ -298,7 +310,14 @@ class Discovery:
         self.store.setting('research_report',report)
         self.store.setting('research_active',True)
         self.event(run_id,'started',{'plan':plan,'history_acknowledged':True})
+        deadline=threading.Event()
+        from .research_pool import CombinedStop
+        self._run_stop=CombinedStop(self.stop,deadline)
+        timer=threading.Timer(plan['max_minutes']*60,deadline.set)
+        timer.daemon=True
+        timer.start()
         def guard():
+            if deadline.is_set(): raise ProviderError('Research time limit reached.')
             if self._web_failure: raise self._web_failure
             if self.stop.is_set(): raise ProviderError('Research stopped by you.')
             if time.monotonic()-start > plan['max_minutes']*60: raise ProviderError('Research time limit reached.')
@@ -317,13 +336,13 @@ class Discovery:
                 with self.store.db() as db:
                     rows=[json.loads(r['record']) for r in db.execute('SELECT record FROM crm_research_profiles')]
                     web_links=[{'url':r['url'],'label':'Prior evidence failure'} for r in sorted(rows,key=lambda r:r['visited_at'],reverse=True)
-                        if r['visit_state'] in ('insufficient_evidence','current_employer_unclear')][:plan['max_profiles']]
+                        if r['visit_state'] in ('insufficient_evidence','current_employer_unclear')][:plan['max_profiles'] or None]
                 if not web_links:web_links=None
             for links in self.batches(plan,run_id,report,guard,web_links):
                 guard()
                 for link in links:
                     guard()
-                    if report['staged']>=plan['limit'] or report['visited']>=plan['max_profiles']: break
+                    if report['staged']>=plan['limit'] or (plan['max_profiles'] and report['visited']>=plan['max_profiles']): break
                     url=link['url'];skip=self.reserve(url,run_id,plan.get('recheck_failed',False))
                     if skip:
                         report['skipped']+=1;self.event(run_id,skip,{'url':url});continue
@@ -394,16 +413,18 @@ class Discovery:
                     self.store.setting('research_report',report)
                 if report['staged']>=plan['limit']:
                     report['reason']='target_reached';break
-                if report['visited']>=plan['max_profiles']:
+                if (plan['max_profiles'] and report['visited']>=plan['max_profiles']):
                     report['reason']='visit_limit';break
         except ProviderError as exc:
-            report['reason']=str(self._web_failure or exc)
+            report['reason']='Research time limit reached.' if deadline.is_set() else str(self._web_failure or exc)
             self.event(run_id,'stopped',{'reason':report['reason']})
         except Exception:
             report['reason']='Research interrupted by an unexpected browser or model error. Inspect the last visited page; no automatic retry.'
             self.event(run_id,'stopped',{'reason':report['reason']})
         finally:
             self._web_pool.close()
+            timer.cancel()
+            del self._run_stop
             with self.store.db() as db:
                 search_count=db.execute("SELECT COUNT(*) FROM research_events WHERE run_id=? AND kind='web_search' AND json_type(detail,'$.query') IS NOT NULL",(run_id,)).fetchone()[0]
                 counts={r['kind']:r['n'] for r in db.execute('SELECT kind,COUNT(*) AS n FROM research_events WHERE run_id=? GROUP BY kind',(run_id,))}

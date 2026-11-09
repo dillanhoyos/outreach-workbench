@@ -33,7 +33,8 @@ class WebPool:
         from .research_web import discover
         worker=copy.copy(self.engine)
         worker.browser=None
-        worker.stop=CombinedStop(self.engine.stop,self.cancel)
+        worker.stop=CombinedStop(self.engine._run_stop,self.cancel)
+        worker._run_stop=worker.stop
         worker.event=lambda run_id,kind,detail:self.engine.event(run_id,kind,{**detail,'worker':index})
         def guard():
             if worker.stop.is_set():raise ProviderError('Web work canceled.')

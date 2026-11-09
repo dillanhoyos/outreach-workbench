@@ -36,8 +36,8 @@ browser and saves contacts. Shared source caching and durable profile reservatio
 prevent duplicate work. Model notifications are routed by thread ID. No model
 can click Connect or Send. Jev is optional; hosted web search uses Codex.
 
-Each plan starts with at most 6 search queries. General runs can expand to three
-rounds of two parallel web searches, with 1–10 proposed candidates, 30 profile visits
+Each plan starts with at most 6 search queries. General runs keep expanding through pairs of parallel web searches, with
+1–10 proposed candidates, an optional 1–500 profile-visit cap (0 means no visit cap),
 and a configurable 1–60 minute deadline (15 by default), checked between actions. An in-flight browser read may
 take up to its timeout after Stop. Model steps have a 120-second deadline and
 are interrupted on cancellation. The web shortlist has a 240-second limit. Rate limits and account challenges stop the run;
@@ -231,7 +231,13 @@ Stop, deadline, or a provider error, pending web work is canceled and joined bef
 the run becomes idle. LinkedIn is never used concurrently. Explicit profile
 rechecks search primary web evidence before opening the requested LinkedIn profile.
 
-Use **Adjust time** beside Prepare research plan to change the time budget.
+Use **Adjust limits** beside Prepare research plan to change time and profile visits.
 Prepare a new plan to apply it; the reviewed plan displays the selected limit.
-The control is unavailable while a job is running. Increasing time does not
-raise the profile-visit or search-round limits.
+The control is unavailable while a job is running. New plans default to time-only
+research (visit cap 0). Existing plans retain their saved cap until replaced.
+General discovery has no fixed search-round cutoff: it revises queries using
+previous results while preserving the audience criteria. Explicit single-profile
+requests still stop after checking that person. Deadline cancellation reaches
+in-flight model turns in both web workers; an active browser or source read may
+finish up to its timeout later. Rate limits, authentication challenges and provider
+errors still stop the run.

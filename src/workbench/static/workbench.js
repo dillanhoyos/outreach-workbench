@@ -21,11 +21,12 @@ function controls() {
   $('brief-reset').disabled = !idle || briefSubmitting;
   $('discovery-prompt').disabled = !idle || briefSubmitting;
   $('discover').disabled = !idle || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
+  $('discovery-visits').disabled = !idle;
   $('discovery-minutes').disabled = !idle;
   $('research-adjust-time').disabled = !idle;
-  $('research-adjust-time').textContent = 'Adjust time · '+($('discovery-minutes').value || '15')+' min';
+  $('research-adjust-time').textContent = 'Adjust limits · '+($('discovery-minutes').value || '15')+' min';
   const plan = researchState?.plan;
-  const changed = Boolean(plan) && (plan.prompt !== $('discovery-prompt').value.trim() || plan.limit !== Number($('discovery-limit').value) || (plan.max_minutes ?? 15) !== Number($('discovery-minutes').value) || Boolean(plan.recheck_failed) !== $('discovery-recheck').checked || (plan.profile_url || '') !== $('discovery-profile').value.trim());
+  const changed = Boolean(plan) && (plan.prompt !== $('discovery-prompt').value.trim() || plan.limit !== Number($('discovery-limit').value) || (plan.max_minutes ?? 15) !== Number($('discovery-minutes').value) || (plan.max_profiles ?? 0) !== Number($('discovery-visits').value) || Boolean(plan.recheck_failed) !== $('discovery-recheck').checked || (plan.profile_url || '') !== $('discovery-profile').value.trim());
   const blocked = !connected ? 'Connect your workspace first.'
     : researchSubmitting ? 'Starting research…'
     : workspace.busy ? 'Wait for the current job to finish.'
@@ -100,7 +101,7 @@ async function refresh() {
     renderConnections();
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
     if (researchState.plan) $('plan-summary').textContent = researchState.plan.summary;
-    if (researchState.plan) $('research-plan-text').textContent = 'Two web workers → one LinkedIn worker\n\n' + 'Recheck prior evidence failures: '+Boolean(researchState.plan.recheck_failed)+'\nSpecific profile: '+(researchState.plan.profile_url || 'None')+'\n\nYour brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
+    if (researchState.plan) $('research-plan-text').textContent = 'Two web workers → one LinkedIn worker\n\n' + 'Recheck prior evidence failures: '+Boolean(researchState.plan.recheck_failed)+'\nSpecific profile: '+(researchState.plan.profile_url || 'None')+'\n\nYour brief: ' + researchState.plan.prompt + '\n\n' + researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + (researchState.plan.max_profiles || 'Time limit only') + ' · Max minutes: ' + researchState.plan.max_minutes;
     $('research-progress').textContent = researchState.events.length ? researchState.events.slice(0,20).map(e => { const detail=JSON.parse(e.detail); return e.kind.replaceAll('_',' ') + ': ' + (detail.reason || detail.query || detail.url || (detail.staged !== undefined ? detail.staged + ' candidates saved for review' : 'Research started')); }).join('\n') : researchState.plan ? 'Your plan is prepared. Complete the step shown beside Start research.' : 'No research has started yet. Prepare a plan to begin.';
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
@@ -163,7 +164,7 @@ $('check-browser').onclick = () => run(checkBrowser);
 $('open-browser').onclick = () => run(async () => { await checkBrowser(); openViewer(); });
 $('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete any LinkedIn prompts, then return to Research.'); });
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
-$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); const max_minutes=Number($('discovery-minutes').value); if (!Number.isInteger(max_minutes) || max_minutes < 1 || max_minutes > 60) throw Error('Choose a time limit from 1 to 60 minutes.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit, max_minutes, web_first:true,recheck_failed:$('discovery-recheck').checked,profile_url:$('discovery-profile').value.trim() }); await refresh(); });
+$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); const max_profiles=Number($('discovery-visits').value); if (!Number.isInteger(max_profiles) || max_profiles < 0 || max_profiles > 500) throw Error('Choose a visit limit from 1 to 500, or 0 for time only.'); const max_minutes=Number($('discovery-minutes').value); if (!Number.isInteger(max_minutes) || max_minutes < 1 || max_minutes > 60) throw Error('Choose a time limit from 1 to 60 minutes.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit, max_minutes, max_profiles, web_first:true,recheck_failed:$('discovery-recheck').checked,profile_url:$('discovery-profile').value.trim() }); await refresh(); });
 $('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
 $('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
 setInterval(() => { if (token && workspace) run(refresh); }, 5000);
@@ -209,6 +210,7 @@ $('research-history').onchange = controls;
 $('discovery-prompt').oninput = controls;
 $('discovery-limit').oninput = controls;
 $('discovery-minutes').oninput = controls;
+$('discovery-visits').oninput = controls;
 $('research-adjust-time').onclick = () => { $('research-brief').open=true; $('discovery-minutes').focus(); $('discovery-minutes').scrollIntoView({block:'center',behavior:'smooth'}); };
 $('research-start').onclick = () => run(async () => {
   const plan=researchState?.plan;
@@ -241,7 +243,7 @@ $('google-create').onclick = () => run(async()=>{await api('sheets/create',{});a
 
 $('google-sheet-form').onsubmit = event => {event.preventDefault();run(async()=>{const result=await connectionAction('connections/google/sheet',{value:$('google-sheet').value.trim()});$('google-message').textContent=result.message;});};
 
-$('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('discovery-prompt').value=researchState.plan.prompt; $('discovery-limit').value=researchState.plan.limit; $('discovery-minutes').value=researchState.plan.max_minutes ?? 15; $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || ''; $('research-history').checked=false; controls(); };
+$('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('discovery-prompt').value=researchState.plan.prompt; $('discovery-limit').value=researchState.plan.limit; $('discovery-minutes').value=researchState.plan.max_minutes ?? 15; $('discovery-visits').value=researchState.plan.max_profiles ?? 0; $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || ''; $('research-history').checked=false; controls(); };
 
 // Navigate between focused screens without recreating the browser or form state.
 const workspaceViews = ['discovery', 'browser-section', 'connections', 'outreach', 'inbox', 'activity'];
@@ -284,7 +286,7 @@ function renderWorkspace() {
   if (planId && $('research-brief').dataset.planId !== planId) {
     if (!$('discovery-prompt').value.trim()) {
       $('discovery-prompt').value = researchState.plan.prompt; $('discovery-recheck').checked=Boolean(researchState.plan.recheck_failed); $('discovery-profile').value=researchState.plan.profile_url || '';
-      $('discovery-limit').value = researchState.plan.limit; $('discovery-minutes').value = researchState.plan.max_minutes ?? 15;
+      $('discovery-limit').value = researchState.plan.limit; $('discovery-minutes').value = researchState.plan.max_minutes ?? 15; $('discovery-visits').value = researchState.plan.max_profiles ?? 0;
     }
     $('research-brief').open = false;
     $('research-brief').dataset.planId = planId;

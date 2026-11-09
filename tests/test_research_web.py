@@ -1,6 +1,7 @@
 import json
 import socket
 import pytest
+pytestmark=pytest.mark.usefixtures("short_research_deadline")
 from workbench import research_web as web
 from workbench.research import Discovery
 from workbench.store import Store

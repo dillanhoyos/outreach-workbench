@@ -136,8 +136,8 @@ def discover(engine,plan,run_id,guard,shared=None):
         'Do not invent URLs or use remembered facts without searching. Exclude known profiles. '
         'Follow your assigned queries/search lane; another worker handles other queries. '
         'Do not silently broaden hard criteria. Return fewer when evidence is unavailable.',
-        {'brief':plan['prompt'],'queries':plan['queries'],'shortlist_size':min(plan['limit']+2,20),'known_profiles':known},
-        Shortlist.model_json_schema(),engine.stop,timeout=min(240,plan['max_minutes']*60),web=True,on_search=event)
+        {'brief':plan['prompt'],'queries':plan['queries'],'shortlist_size':min(plan['limit']+2,20),'known_profiles':known,'round':plan.get('round',1),'previous_results':plan.get('previous_results',[])},
+        Shortlist.model_json_schema(),getattr(engine,"_run_stop",engine.stop),timeout=min(240,plan['max_minutes']*60),web=True,on_search=event)
     shortlist=Shortlist.model_validate(data);cache={};links=[];seen=set()
     for item in shortlist.prospects:
         guard()

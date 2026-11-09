@@ -25,11 +25,15 @@ def test_parallel_web_serial_linkedin_dedupe_and_target(tmp_path,monkeypatch):
     assert not store.list('deliveries')
 
 
-def test_empty_web_results_exhaust_bounded_rounds(tmp_path,monkeypatch):
+def test_empty_results_continue_past_three_rounds_until_stopped(tmp_path,monkeypatch):
     store,browser,engine,plan=setup(tmp_path);rounds=[]
-    monkeypatch.setattr(research_web,'discover',lambda *a,**kw:rounds.append(1) or [])
+    def empty(*a,**kw):
+        rounds.append(1)
+        if len(rounds)>=8:engine.stop.set()
+        return []
+    monkeypatch.setattr(research_web,'discover',empty)
     report=engine.run(plan['id'],True)
-    assert len(rounds)==6 and report['reason']=='discovery_budget_exhausted'
+    assert len(rounds)>=8 and 'stopped by you' in report['reason']
     assert report['visited']==0
 
 
@@ -68,3 +72,22 @@ def test_shared_primary_source_is_captured_once(tmp_path):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results=list(pool.map(lambda _:work(),range(2)))
     assert calls==[1] and results[0] is results[1]
+
+
+def test_explicit_visit_cap_stops_before_target(tmp_path,monkeypatch):
+    store,browser,engine,plan=setup(tmp_path)
+    plan['max_profiles']=2;store.setting('research_plan',plan)
+    monkeypatch.setattr(research_web,'discover',lambda *a,**kw:[{'url':f'https://www.linkedin.com/in/capped-{i}/','label':'New','web_company':browser.company(COMPANY)} for i in range(5)])
+    result=engine.run(plan['id'],True)
+    assert result['visited']==2 and result['staged']==2 and result['reason']=='visit_limit'
+
+
+def test_deadline_cancels_inflight_workers(tmp_path,monkeypatch,short_research_deadline):
+    store,browser,engine,plan=setup(tmp_path);ended=[]
+    def busy(worker,*a,**kw):
+        while not worker.stop.is_set():threading.Event().wait(.01)
+        ended.append(True);return []
+    monkeypatch.setattr(research_web,'discover',busy)
+    result=engine.run(plan['id'],True)
+    assert result['reason']=='Research time limit reached.' and len(ended)==2
+    assert not engine.state()['active'] and browser.visits==0
