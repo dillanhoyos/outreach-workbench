@@ -1,8 +1,9 @@
 # Outreach Workbench
 
 A local-first workspace for reviewing prospects, sending approved invitations,
-and collecting incoming replies. Browser-agent discovery is being ported; live
-research is not connected in this release. A web UI and authenticated JSON API expose the same workflows.
+and collecting incoming replies. Prompt-driven discovery uses Codex and a verified
+LinkedIn browser to propose source-backed candidates. A web UI and authenticated
+JSON API expose the same workflows.
 The demo works without external accounts. Live connectors use your own accounts.
 
 **Experimental release.** Includes a working account-free demo and optional live
@@ -50,8 +51,8 @@ In `.env`, set `WORKBENCH_MODE=live` and configure only the services you need:
 | --- | --- | --- |
 | `WORKBENCH_TOKEN`, `VNC_PASSWORD` | Created by `python3 scripts/setup.py` | Local app / browser access |
 | Jev connection panel; `BROWSER_ADVISOR=jev` enables assistance | Your key from [TypeSafe](https://console.typesafe.ai/keys) | Optional Jev browser assistance |
-| Codex connection panel | Your ChatGPT sign-in or OpenAI API key | Authentication ready; research worker still planned |
-| `GOOGLE_SHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Your workbook and downloaded service-account file | Optional Sheets export |
+| Codex connection panel | Your ChatGPT sign-in or OpenAI API key | Research planning and evidence assessment |
+| Google sign-in (own OAuth client), or `GOOGLE_SHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Your workbook and downloaded service-account file | Optional Sheets export |
 
 LinkedIn login happens directly in the browser, including 2FA. No LinkedIn
 password belongs in `.env`. Leave Jev disabled (`BROWSER_ADVISOR=none`) to use
@@ -72,9 +73,9 @@ profile URL, and verify the account. Login progress and failures appear beside
 the viewer. A browser-offline state shows the startup instructions instead of
 an inactive localhost link. See [browser troubleshooting](docs/AUTHENTICATION.md#linkedin).
 
-- **Discovery:** a research-brief interface and fictional demo preview. Live
-  browser research is not connected yet; the UI disables that action and the API
-  returns 503 without creating a job. See the [Codex/Jev discovery plan](docs/DISCOVERY.md).
+- **Discovery:** prepare a Codex research plan, review it, then start bounded
+  browser research. Source-backed candidates are staged for human review.
+  See [discovery setup and limits](docs/DISCOVERY.md).
   The demo returns fixed fictional records; it does not interpret the brief.
 - **Outreach manager:** approve an exact note, then explicitly send selected leads.
   It verifies the signed-in account, recipient name and company before a single
@@ -87,7 +88,8 @@ an inactive localhost link. See [browser troubleshooting](docs/AUTHENTICATION.md
   cards and imports visible incoming messages only for known CRM profile URLs.
   The limit is unique conversation cards, not message count. It does not claim a
   complete inbox archive; old unloaded messages and other folders may be missing.
-- **Sheets sync:** optional manual snapshot sync to three installation-owned tabs.
+- **Sheets sync:** Google OAuth for an app-created CRM workbook, or a service
+  account for your own workbook. Optional manual snapshot sync to three installation-owned tabs.
   Messages are written as literal values, then read back. Existing unrelated tabs
   are preserved. SQLite remains the source of truth; sheet edits do not import back.
 
@@ -105,7 +107,7 @@ Use `outreach-workbench schema` for the generated API schema. Jobs are visible a
 ```sh
 # Set WORKBENCH_TOKEN in your shell without putting its literal value in history.
 outreach-workbench status
-# Demo preview only; live research is not connected yet.
+# Demo preview; use the UI to review a live research plan before starting.
 outreach-workbench discover 'Find accounting professionals at road operators' --limit 5
 outreach-workbench list leads
 outreach-workbench approve LEAD_ID 'Hello, would you be open to connecting?'

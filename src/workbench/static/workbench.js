@@ -1,5 +1,5 @@
 'use strict';
-let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null;
+let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null;
 const $ = id => document.getElementById(id);
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body, method) {
@@ -17,13 +17,15 @@ function controls() {
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
   for (const id of ['discover', 'read', 'refresh']) $(id).disabled = !idle;
   $('discover').disabled = !idle || !workspace.discovery.ready;
+  $('research-start').disabled = !idle || !workspace.discovery.ready || !researchState?.plan || !$('research-history').checked || researchState.plan.prompt !== $('discovery-prompt').value.trim() || researchState.plan.limit !== Number($('discovery-limit').value);
+  $('research-stop').disabled = !connected || !workspace.busy;
   $('sync').disabled = !idle || workspace.mode !== 'live' || !workspace.sheets_configured;
   $('check-browser').disabled = !connected || browserChecking;
   $('open-browser').disabled = !browserState?.available;
   $('login').disabled = !idle || workspace.mode !== 'live' || !browserState?.available || Boolean(workspace.linkedin_restriction);
   $('verify').disabled = !idle || workspace.mode !== 'live' || !browserState?.available;
   $('reset-browser').disabled = !idle || workspace.mode !== 'live';
-  for (const id of ['codex-login', 'codex-key-save', 'codex-check', 'codex-logout', 'codex-cancel', 'jev-save', 'jev-check', 'jev-disconnect']) $(id).disabled = !idle || connectionBusy;
+  for (const id of ['codex-login', 'codex-key-save', 'codex-check', 'codex-logout', 'codex-cancel', 'jev-save', 'jev-check', 'jev-disconnect', 'google-login', 'google-disconnect', 'google-create', 'google-select']) $(id).disabled = !idle || connectionBusy;
   if (idle && !connectionBusy && connections) {
     $('codex-login').disabled = !connections.codex.available || connections.codex.signed_in || Boolean(connections.codex.pending);
     $('codex-key-save').disabled = !connections.codex.available || connections.codex.signed_in || Boolean(connections.codex.pending);
@@ -32,14 +34,18 @@ function controls() {
     $('codex-logout').disabled = !connections.codex.signed_in;
     $('jev-check').disabled = !connections.jev.configured;
     $('jev-disconnect').disabled = !connections.jev.configured;
+    $('google-login').disabled = !connections.google.configured || connections.google.connected;
+    $('google-disconnect').disabled = !connections.google.connected;
+    $('google-select').disabled = !connections.google.connected;
+    $('google-create').disabled = !connections.google.connected || workspace.mode !== 'live' || Boolean(workspace.google_sheet_id);
   }
 }
 async function refresh() {
   if (refreshing) return;
   refreshing = true;
   try {
-    const [status, leads, replies, jobs, authState] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs', 'connections'].map(p => api(p)));
-    connections = authState;
+    const [status, leads, replies, jobs, authState, discoveryState] = await Promise.all(['status', 'records/leads', 'records/replies', 'records/jobs', 'connections', 'discovery/state'].map(p => api(p)));
+    connections = authState; researchState = discoveryState;
     workspace = status;
     $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
     $('status').textContent = (status.busy ? 'A job is running. ' : 'Ready. ') + 'Daily action limit: ' + status.daily_limit + ' (UTC).';
@@ -47,11 +53,14 @@ async function refresh() {
     $('account-note').textContent = status.account ? 'Last verified account. We check this identity again before reading or sending.' : 'Connect the browser, sign in, then confirm which account will perform actions.';
     $('restriction').hidden = !status.linkedin_restriction;
     $('restriction').textContent = status.linkedin_restriction ? 'LinkedIn reported a restriction. Actions are paused; review it in the browser.' : '';
-    $('discover').textContent = status.mode === 'demo' ? 'Preview fictional leads' : 'Research agent not connected';
+    $('discover').textContent = status.mode === 'demo' ? 'Preview fictional leads' : 'Prepare research plan';
     $('discovery-state').textContent = status.mode === 'demo'
       ? 'Demo only: this previews a fixed set of fictional people. It does not interpret the prompt or search the web.'
-      : 'Live research is not connected yet. The planned Codex/Jev agent will use this brief to research pages in the browser. No search runs from this form in this release.';
+      : status.discovery.reason || 'Ready: prepare a plan, review it, then start browser research. Candidates will be saved for review.';
     renderConnections();
+    $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
+    if (researchState.plan) $('research-plan-text').textContent = researchState.plan.summary + '\n\nSearches:\n' + researchState.plan.queries.join('\n') + '\n\nTarget: ' + researchState.plan.limit + ' · Max profile visits: ' + researchState.plan.max_profiles + ' · Max minutes: ' + researchState.plan.max_minutes;
+    $('research-progress').textContent = JSON.stringify({report:researchState.report,events:researchState.events.slice(0,20).map(e=>({at:e.created,step:e.kind,detail:JSON.parse(e.detail)}))}, null, 2);
     $('sheets-state').textContent = status.sheets_configured ? 'Configured' : 'Optional';
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
     $('leads').replaceChildren();
@@ -127,13 +136,16 @@ $('open-browser').onclick = () => run(async () => { await checkBrowser(); openVi
 $('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete verification, then paste your profile URL and verify your account.'); });
 $('verify').onclick = () => run(async () => { if (!$('profile').value.trim()) throw Error('Paste your own LinkedIn profile URL first.'); await browserJob('linkedin/verify', { profile_url: $('profile').value.trim() }, 'Checking the signed-in identity…', 'Account verified. Your workspace is ready.'); });
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
-$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw Error('Choose a target between 1 and 100.'); await api('discover', { prompt, limit }); await refresh(); });
+$('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw Error('Choose a target between 1 and 100.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit }); await refresh(); });
 $('read').onclick = () => run(async () => { await api('replies/read', { limit: 100 }); await refresh(); });
 $('sync').onclick = () => run(async () => { await api('sheets/sync', {}); await refresh(); });
 setInterval(() => { if (token && workspace) run(refresh); }, 5000);
 
 function renderConnections() {
-  const c = connections.codex, j = connections.jev;
+  const c = connections.codex, j = connections.jev, g = connections.google;
+  $('google-message').textContent = g.connected ? 'Google connected. Create or sync your CRM spreadsheet below.' : g.message || 'Google is not connected.';
+  $('google-open').hidden = !workspace.google_sheet_id;
+  if (workspace.google_sheet_id) $('google-open').href = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(workspace.google_sheet_id) + '/edit';
   $('codex-state').textContent = !c.available ? 'Unavailable' : c.signed_in ? 'Signed in' : c.pending ? 'Awaiting sign-in' : 'Not connected';
   $('codex-account').textContent = c.account ? (c.account.email || 'OpenAI API account') + (c.account.planType ? ' · ' + c.account.planType : '') : 'Sign in with your own ChatGPT account or connect an OpenAI API key.';
   $('codex-message').textContent = c.message || '';
@@ -165,3 +177,26 @@ $('codex-check').onclick = () => run(() => connectionAction('connections/codex/c
 $('codex-logout').onclick = () => run(() => connectionAction('connections/codex', undefined, 'DELETE'));
 $('codex-cancel').onclick = () => run(() => connectionAction('connections/codex/cancel', {}));
 $('codex-key-form').onsubmit = event => { event.preventDefault(); run(async () => { const key = $('codex-key').value.trim(); $('codex-key').value = ''; await connectionAction('connections/codex/key', {key}); }); };
+
+$('research-history').onchange = controls;
+$('discovery-prompt').oninput = controls;
+$('discovery-limit').oninput = controls;
+$('research-start').onclick = () => run(async () => {
+  const plan=researchState.plan;
+  await api('discover',{prompt:plan.prompt,limit:plan.limit,plan_id:plan.id,history_ack:$('research-history').checked});
+  await refresh();
+});
+$('research-stop').onclick = () => run(async () => { await api('discovery/stop',{}); await refresh(); });
+$('google-login').onclick = () => run(async () => {
+  const tab=window.open('about:blank','_blank');
+  try {
+    const result=await connectionAction('connections/google/login',{});
+    const url=new URL(result.authorization_url);
+    if(url.protocol!=='https:' || url.hostname!=='accounts.google.com')throw Error('Unexpected Google sign-in URL.');
+    if(tab){tab.opener=null;tab.location=url.href;} else { error('Allow popups for this app, then click Connect Google again.'); }
+  } catch(e){if(tab)tab.close();throw e;}
+});
+$('google-disconnect').onclick = () => run(()=>connectionAction('connections/google',undefined,'DELETE'));
+$('google-create').onclick = () => run(async()=>{await api('sheets/create',{});await refresh();});
+
+$('google-sheet-form').onsubmit = event => {event.preventDefault();run(async()=>{const result=await connectionAction('connections/google/sheet',{value:$('google-sheet').value.trim()});$('google-message').textContent=result.message;});};

@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Depends, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict, SecretStr
 from fastapi.exceptions import RequestValidationError
@@ -20,11 +20,19 @@ from .store import Store, now
 from .demo import DemoProvider
 from .errors import ProviderError
 from .sheets import SheetsSync
+from .google_connection import GoogleConnection
+from .research import Discovery
+from .research_browser import ResearchBrowser
 
 class DiscoveryRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     prompt: str = Field(min_length=2, max_length=5000)
-    limit: int = Field(default=10, ge=1, le=100)
+    limit: int = Field(default=3, ge=1, le=100)
+    plan_id: str = Field(default="",max_length=64)
+    history_ack: bool = False
+
+class SheetDestination(BaseModel):
+    value: str = Field(min_length=10,max_length=500)
 
 class ConnectionKey(BaseModel):
     key: SecretStr
@@ -83,11 +91,15 @@ def create_app(settings=None, provider=None):
     app.state.store=store
     jev_connection = JevConnection(settings)
     codex_connection = CodexAuth(settings.data_dir)
+    google_connection = GoogleConnection(settings)
+    research = Discovery(store,codex_connection,ResearchBrowser(provider.linkedin) if hasattr(provider,"linkedin") else None,jev_connection)
+    store.setting("research_active",False)
 
     @asynccontextmanager
     async def lifespan(app):
         try:yield
         finally:
+            research.stop.set()
             executor.shutdown(wait=True,cancel_futures=True)
             codex_connection.close()
             if hasattr(provider,'linkedin'):provider.linkedin.close_transport()
@@ -134,7 +146,7 @@ def create_app(settings=None, provider=None):
         try: codex_status = codex_connection.status()
         except ProviderError as exc:
             codex_status = {'available': False, 'signed_in': False, 'message': str(exc)}
-        return {'jev': jev_connection.status(), 'codex': codex_status}
+        return {'jev': jev_connection.status(), 'codex': codex_status, 'google':google_connection.status()}
 
     @app.post('/api/connections/jev', dependencies=[Depends(auth)])
     def connect_jev(body: ConnectionKey):
@@ -176,9 +188,40 @@ def create_app(settings=None, provider=None):
         with connection_idle():
             return codex_connection.logout()
 
+    @app.post('/api/connections/google/login', dependencies=[Depends(auth)])
+    def google_login():
+        with connection_idle():return google_connection.start()
+
+    @app.get('/api/connections/google/callback')
+    def google_callback(state: str = '', code: str = '', error: str = ''):
+        # OAuth state binds this callback to an authenticated start request.
+        try:
+            with connection_idle():google_connection.finish(state,code,error)
+            message='Google connected. Close this tab and return to Outreach Workbench.'
+            status=200
+        except (ProviderError,HTTPException):
+            message='Google sign-in did not complete. Return to the app and start Google sign-in again.'
+            status=400
+        return HTMLResponse('<!doctype html><title>Google connection</title><p>'+message+'</p>',status_code=status,
+                            headers={'Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'"})
+
+    @app.delete('/api/connections/google', dependencies=[Depends(auth)])
+    def google_disconnect():
+        with connection_idle():return google_connection.disconnect()
+
+    @app.post('/api/connections/google/sheet',dependencies=[Depends(auth)])
+    def google_select(body:SheetDestination):
+        with connection_idle():return google_connection.select_sheet(store,body.value)
+
+    @app.post('/api/sheets/create', dependencies=[Depends(auth)])
+    def google_create():
+        if settings.mode!='live':raise HTTPException(400,'Switch to live mode before creating a Google spreadsheet.')
+        return job('sheets-create',lambda:google_connection.create_sheet(store))
+
     def job(kind,fn):
         if not busy.acquire(blocking=False):raise HTTPException(409,'A job is already running')
         ident=uuid.uuid4().hex
+        if kind in ('discovery','discovery-plan'):research.stop.clear()
         try:
             with store.db() as db:db.execute('INSERT INTO jobs(id,kind,status,created) VALUES(?,?,?,?)',(ident,kind,'running',now()))
         except Exception:
@@ -200,11 +243,21 @@ def create_app(settings=None, provider=None):
     @app.get('/')
     def index():return FileResponse(Path(__file__).parent/'static/index.html')
 
+    def discovery_status():
+        if settings.mode=='demo':return {'ready':True,'provider':'demo'}
+        try:connected=codex_connection.status()['signed_in']
+        except ProviderError:connected=False
+        reason=('Sign in to Codex under Your connections.' if not connected else
+                'Verify your LinkedIn account in the browser.' if not store.setting('account') else
+                'Resolve the recorded LinkedIn restriction first.' if store.setting('linkedin_restriction') else '')
+        return {'ready':not bool(reason),'provider':'codex_browser','reason':reason}
+
     @app.get('/api/status',dependencies=[Depends(auth)])
     def status():
         return {'mode':settings.mode,'daily_limit':settings.daily_limit,
                 'browser_advisor':settings.browser_advisor,'jev_configured':bool(jev_connection.key()),
-                'discovery':{'ready':settings.mode == 'demo','provider':'demo' if settings.mode == 'demo' else 'not_connected'},'sheets_configured':bool(settings.sheet_id and settings.google_credentials),
+                'discovery':discovery_status(),'sheets_configured':bool((google_connection.status()['connected'] and store.setting('oauth_sheet_id')) or (settings.sheet_id and settings.google_credentials)),
+                'google_sheet_id':store.setting('oauth_sheet_id') or '',
                 'busy':busy.locked(),'account':store.setting('account'),
                 'linkedin_restriction':store.setting('linkedin_restriction'),
                 'reader_report':store.setting('last_reader_report')}
@@ -230,7 +283,12 @@ def create_app(settings=None, provider=None):
     @app.post('/api/discover',dependencies=[Depends(auth)])
     def discover(body:DiscoveryRequest):
         if settings.mode != 'demo':
-            raise HTTPException(503, 'Browser-agent discovery is not connected in this release. No research job was started. See docs/DISCOVERY.md for the implementation plan.')
+            state=discovery_status()
+            if not state['ready']:raise HTTPException(503,state['reason'])
+            if not body.plan_id or not body.history_ack:
+                raise HTTPException(400,'Review a research plan and confirm your CRM history before starting.')
+            if research.browser is None:raise HTTPException(503,'Live browser provider is unavailable.')
+            return job('discovery',lambda:research.run(body.plan_id,body.history_ack))
         def work():
             found=provider.discover(body.prompt,body.limit)
             leads=found.get('candidates',[]) if isinstance(found,dict) else found
@@ -238,7 +296,23 @@ def create_app(settings=None, provider=None):
             return {'found':len(leads),'added':added,'duplicates':len(leads)-added}
         return job('discovery',work)
 
-    @app.post('/api/leads/{ident}/approve',dependencies=[Depends(auth)])
+    @app.get('/api/discovery/state',dependencies=[Depends(auth)])
+    def research_state():return research.state()
+
+    @app.post('/api/discovery/plan',dependencies=[Depends(auth)])
+    def research_plan(body:DiscoveryRequest):
+        state=discovery_status()
+        if settings.mode!='live' or not state['ready']:
+            raise HTTPException(400,state.get('reason') or 'Research plans require live mode.')
+        if body.limit>10:raise HTTPException(400,'Use 1–10 candidates per research run.')
+        return job('discovery-plan',lambda:research.prepare(body.prompt,body.limit))
+
+    @app.post('/api/discovery/stop',dependencies=[Depends(auth)])
+    def research_stop():
+        research.stop.set()
+        return {'message':'Stop requested. The current browser read will finish; no new visits will begin.'}
+
+    @app.post('/api/leads/{ident}/approve' ,dependencies=[Depends(auth)])
     def approve(ident:str,body:Approval):
         store.approve(ident,body.note);return {'status':'approved'}
 
@@ -298,7 +372,7 @@ def create_app(settings=None, provider=None):
         return {'status':'cleared','message':'Next action will recheck the account and page.'}
 
     @app.post('/api/sheets/sync',dependencies=[Depends(auth)])
-    def sync():return job('sheets',lambda:SheetsSync(settings,store).sync())
+    def sync():return job('sheets',lambda:SheetsSync(settings,store,google=google_connection).sync())
 
     @app.post('/api/holds',dependencies=[Depends(auth)])
     def hold(body:HoldRequest):

@@ -16,11 +16,19 @@ class CodexAuth:
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.directory.chmod(0o700)
         self.command = command or ['codex', 'app-server',
-                                   '-c', 'cli_auth_credentials_store="file"', '--listen', 'stdio://']
+                                   '-c', 'cli_auth_credentials_store="file"',
+                                   '-c', 'model_provider="workbench"',
+                                   '-c', 'model_providers.workbench={name="OpenAI",wire_api="responses",requires_openai_auth=true,request_max_retries=0,stream_max_retries=0}',
+                                   '--listen', 'stdio://']
+        if command is None:
+            for feature in ('apps','plugins','remote_plugin','hooks','memories','multi_agent','browser_use','computer_use','shell_tool','unified_exec'):
+                self.command += ['-c','features.'+feature+'=false']
         self.process = None
         self.lock = threading.RLock()
         self.waiters = {}
         self.sequence = 0
+        self.events = None
+        self.write_lock = threading.Lock()
         self.pending = None
         self.login_message = ''
 
@@ -29,6 +37,14 @@ class CodexAuth:
             for line in process.stdout:
                 try: message = json.loads(line)
                 except ValueError: continue
+                if 'id' in message and 'method' in message:
+                    # Research never grants tool/command/credential permissions.
+                    with self.write_lock:
+                        process.stdin.write(json.dumps({'id':message['id'],'error':{'code':-32601,'message':'Unsupported request'}}) + '\n')
+                        process.stdin.flush()
+                    continue
+                if self.events is not None and 'method' in message:
+                    self.events.put(message)
                 if 'id' in message and message['id'] in self.waiters:
                     self.waiters[message['id']].put(message)
                 elif message.get('method') == 'account/login/completed':
@@ -71,8 +87,9 @@ class CodexAuth:
             waiter = queue.Queue()
             self.waiters[ident] = waiter
             try:
-                self.process.stdin.write(json.dumps({'id': ident, 'method': method, 'params': params or {}}) + '\n')
-                self.process.stdin.flush()
+                with self.write_lock:
+                    self.process.stdin.write(json.dumps({'id': ident, 'method': method, 'params': params or {}}) + '\n')
+                    self.process.stdin.flush()
                 message = waiter.get(timeout=25)
                 if 'error' in message:
                     raise ProviderError('Codex could not complete this authentication action. Check connectivity and account permissions; device login may need enabling in OpenAI settings.')

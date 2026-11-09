@@ -73,3 +73,24 @@ three temporary Singleton lock/socket links on startup. Browser recreation tests
 reuse the same volume to verify that saved profile data is retained and Chrome
 can launch after the container hostname changes. Never share a profile volume
 with a separately managed Chrome process.
+
+## Discovery and OAuth regression tests
+
+The normal suite covers planning, evidence checks, live-history acknowledgement,
+duplicate reservations, new replies during assessment, rate-limit stops, OAuth
+state/PKCE, callback secrecy, credential persistence, and OAuth Sheets tab ownership.
+No real accounts or invitations are used.
+
+To exercise the pinned native Codex binary against a local model fixture:
+
+```sh
+CODEX_TEST_BINARY=/absolute/path/to/codex pytest -q tests/test_codex_runtime.py
+```
+
+The test makes one local model request and asserts there are no shell, web,
+browser or external-app tools. Without this variable it is explicitly skipped.
+This is a protocol/permissions test, not proof of paid account access or lead quality.
+Use a three-profile trial on your own installation for that validation.
+
+Google OAuth still requires your own web application client and consent.
+Fixture success is not a completed real Google sign-in or spreadsheet write.

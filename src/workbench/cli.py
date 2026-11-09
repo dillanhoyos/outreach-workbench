@@ -15,7 +15,7 @@ def main():
     p=sub.add_parser('import');p.add_argument('file')
     sub.add_parser('reset-browser')
     p=sub.add_parser('verify');p.add_argument('profile_url')
-    p=sub.add_parser('discover',help='Preview fictional leads in demo mode; live browser research is not connected yet');p.add_argument('prompt');p.add_argument('--limit',type=int,default=10)
+    p=sub.add_parser('discover',help='Preview fictional leads in demo mode; use the UI for live plan review');p.add_argument('prompt');p.add_argument('--limit',type=int,default=10)
     p=sub.add_parser('read');p.add_argument('--limit',type=int,default=100)
     p=sub.add_parser('list');p.add_argument('table',choices=['leads','replies','deliveries','jobs','holds'])
     p=sub.add_parser('approve');p.add_argument('lead_id');p.add_argument('note')
@@ -23,7 +23,7 @@ def main():
     args=parser.parse_args()
     if args.command=='serve':
         import uvicorn
-        uvicorn.run('workbench.app:create_app',factory=True,host='0.0.0.0',port=8080)
+        uvicorn.run('workbench.app:create_app',factory=True,host='0.0.0.0',port=8080,access_log=False)
         return
     routes={'status':('GET','/api/status',None),'schema':('GET','/api/schema',None),'login':('POST','/api/linkedin/login',{}),'sync':('POST','/api/sheets/sync',{}),'reset-browser':('POST','/api/linkedin/reset',{})}
     if args.command=='discover':route=('POST','/api/discover',{'prompt':args.prompt,'limit':args.limit})

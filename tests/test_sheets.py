@@ -54,3 +54,14 @@ def test_readback_mismatch_stops(tmp_path):
     store,settings=setup(tmp_path);client=SheetsFixture();client.corrupt=True
     with pytest.raises(ProviderError,match='readback'):SheetsSync(settings,store,client).sync()
     assert client.writes==1
+
+def test_oauth_destination_preserves_workbook_binding_across_all_tabs(tmp_path):
+    store,settings=setup(tmp_path)
+    store.setting('oauth_sheet_id','oauth-fixture-workbook')
+    google=SimpleNamespace(status=lambda:{'connected':True})
+    client=SheetsFixture()
+    sync=SheetsSync(settings,store,client,google)
+    assert sync.sync()['spreadsheet_url'].endswith('/oauth-fixture-workbook/edit')
+    assert sync.sync()['verified_rows']['leads']==1
+    assert set(store.setting('sheets_owned_tabs'))=={'oauth-fixture-workbook'}
+    assert len(store.setting('sheets_owned_tabs')['oauth-fixture-workbook'])==3

@@ -16,23 +16,25 @@ HEADERS={
 TABS={'leads':'Workbench Leads','replies':'Workbench Replies','deliveries':'Workbench Deliveries'}
 
 class SheetsSync:
-    def __init__(self,settings,store,client=None):
-        self.settings=settings;self.store=store;self.client=client
+    def __init__(self,settings,store,client=None,google=None):
+        self.settings=settings;self.store=store;self.client=client;self.google=google
 
     def sync(self):
-        if not self.settings.sheet_id or not self.settings.google_credentials:
-            raise ProviderError('Configure GOOGLE_SHEET_ID and a mounted Google service-account JSON file first.')
+        oauth = bool(self.google and self.google.status()['connected'])
+        sheet_id = self.store.setting('oauth_sheet_id') if oauth else self.settings.sheet_id
+        if not sheet_id or (not oauth and not self.settings.google_credentials):
+            raise ProviderError('Connect Google and create your CRM spreadsheet, or configure a service account and workbook first.')
         client=self.client
         if client is None:
             try:
-                creds=service_account.Credentials.from_service_account_file(self.settings.google_credentials,
+                creds=self.google.credentials() if oauth else service_account.Credentials.from_service_account_file(self.settings.google_credentials,
                     scopes=['https://www.googleapis.com/auth/spreadsheets'])
             except Exception:
-                raise ProviderError('Cannot load Google service-account credentials. Check the mounted file.') from None
+                raise ProviderError('Cannot load Google credentials. Reconnect Google or check the service-account file.') from None
             client=AuthorizedSession(creds)
-        base='https://sheets.googleapis.com/v4/spreadsheets/'+quote(self.settings.sheet_id,safe='')
+        base='https://sheets.googleapis.com/v4/spreadsheets/'+quote(sheet_id,safe='')
         owned=self.store.setting('sheets_owned_tabs') or {}
-        binding=owned.get(self.settings.sheet_id,{})
+        binding=owned.get(sheet_id,{})
         try:
             metadata=check_response(client.get(base,params={'fields':'spreadsheetId,sheets.properties'},timeout=30),'Google Sheets')
             sheets={s['properties']['title']:s['properties'] for s in metadata.get('sheets',[])}
@@ -44,12 +46,12 @@ class SheetsSync:
                     # Reserve a stable ID before attempting creation. A timeout can be
                     # reconciled by the next metadata read, without duplicate sheets.
                     import secrets
-                    sheet_id=binding.get(title) or secrets.randbelow(2**30)+1
-                    binding[title]=sheet_id;owned[self.settings.sheet_id]=binding
+                    tab_id=binding.get(title) or secrets.randbelow(2**30)+1
+                    binding[title]=tab_id;owned[sheet_id]=binding
                     self.store.setting('sheets_owned_tabs',owned)
                     check_response(client.post(base+':batchUpdate',json={'requests':[{'addSheet':{'properties':{
-                        'sheetId':sheet_id,'title':title,'gridProperties':{'frozenRowCount':1}}}}]},timeout=30),'Google Sheets')
-                    sheets[title]={'sheetId':sheet_id,'gridProperties':{'rowCount':1000,'columnCount':26}}
+                        'sheetId':tab_id,'title':title,'gridProperties':{'frozenRowCount':1}}}}]},timeout=30),'Google Sheets')
+                    sheets[title]={'sheetId':tab_id,'gridProperties':{'rowCount':1000,'columnCount':26}}
             reports={}
             for table,title in TABS.items():
                 headers=HEADERS[table]
@@ -66,6 +68,8 @@ class SheetsSync:
                 padded=[r+['']*(len(headers)-len(r)) for r in result]
                 if padded!=values:raise ProviderError(f'{title} readback differs. Local records are preserved; sync stopped.')
                 reports[table]=len(rows)
-            return {'verified_rows':reports,'spreadsheet_url':'https://docs.google.com/spreadsheets/d/'+self.settings.sheet_id+'/edit'}
+            return {'verified_rows':reports,'spreadsheet_url':'https://docs.google.com/spreadsheets/d/'+sheet_id+'/edit'}
         finally:
-            if self.client is None:client.close()
+            if self.client is None:
+                client.close()
+                if oauth:self.google.persist(creds)
