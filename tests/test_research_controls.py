@@ -13,7 +13,7 @@ const nodes={}; const $=id=>nodes[id]??=( {value:'',checked:false,hidden:false,d
 let workspace={mode:'live',busy:false,account:null,discovery:{ready:false,reason:'Sign in to Codex.'}};
 let researchState={plan:{prompt:'Find founders',limit:3}};
 let browserState=null,browserChecking=false,connectionBusy=false,connections=null,researchSubmitting=false,briefSubmitting=false;
-$('discovery-prompt').value='Find founders';$('discovery-limit').value='3';$('research-history').checked=true;
+$('discovery-prompt').value='Find founders';$('discovery-limit').value='3';$('discovery-minutes').value='15';$('research-history').checked=true;
 '''+controls+'''
 controls();assert.equal($('research-start').disabled,false);
 assert.match($('research-start-help').textContent,/Sign in to Codex/);
@@ -25,7 +25,9 @@ assert.equal($('research-use-plan').hidden,false);
 $('discovery-prompt').value='Find founders';$('research-history').checked=false;controls();
 assert.match($('research-start-help').textContent,/checkbox/);
 $('research-history').checked=true;controls();assert.equal($('research-start').disabled,false);
-workspace.busy=true;controls();assert.match($('research-start-help').textContent,/current job/);assert.equal($('research-start').disabled,false);
+$('discovery-minutes').value='30';controls();assert.match($('research-start-help').textContent,/edited form/);assert.match($('research-adjust-time').textContent,/30 min/);
+$('discovery-minutes').value='15';
+workspace.busy=true;controls();assert.equal($('research-adjust-time').disabled,true);assert.match($('research-start-help').textContent,/current job/);assert.equal($('research-start').disabled,false);
 researchSubmitting=true;controls();assert.equal($('research-start').disabled,true);researchSubmitting=false;
 workspace=null;controls();assert.match($('research-start-help').textContent,/Connect your workspace/);
 '''

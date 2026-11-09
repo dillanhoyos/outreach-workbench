@@ -127,3 +127,16 @@ def test_missing_company_skips_model_and_headline_match_skips_selection(tmp_path
     calls.clear()
     result=engine2.run(plan2['id'],True)
     assert calls.count('Candidate')==1 and 'Employer' not in calls and result['staged']==1
+
+
+def test_selected_time_is_validated_and_stored_in_plan(tmp_path):
+    from workbench.app import DiscoveryRequest
+    from pydantic import ValidationError
+    store,browser,engine,plan=setup(tmp_path)
+    assert plan['max_minutes']==15
+    assert engine.prepare('Find founders',3,max_minutes=30)['max_minutes']==30
+    assert store.setting('research_plan')['max_minutes']==30
+    for invalid in (0,61,1.5,True):
+        with pytest.raises(ProviderError,match='time limit'):
+            engine.prepare('Find founders',3,max_minutes=invalid)
+        with pytest.raises(ValidationError):DiscoveryRequest(prompt='Find founders',max_minutes=invalid)

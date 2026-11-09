@@ -163,7 +163,8 @@ class Discovery:
         self.store.setting('research_plan',False)
         return {'message':'New research brief started. CRM records are unchanged.'}
 
-    def prepare(self, prompt, limit, web_first=True, recheck_failed=False, profile_url=""):
+    def prepare(self, prompt, limit, web_first=True, recheck_failed=False, profile_url="", max_minutes=15):
+        if type(max_minutes) is not int or not 1 <= max_minutes <= 60: raise ProviderError('Choose a research time limit from 1 to 60 minutes.')
         if not 1 <= limit <= 10: raise ProviderError('Start with 1–10 candidates per research run.')
         if profile_url:
             from .research_browser import research_url
@@ -176,7 +177,7 @@ class Discovery:
         if any(not q.strip() or len(q)>250 or '://' in q for q in plan.queries):
             raise ProviderError('Research plan contained an invalid search query.')
         result={'id':uuid.uuid4().hex,'prompt':prompt,'limit':limit,**plan.model_dump(),
-                'max_profiles':min(limit*5,30),'max_minutes':15,'created':now(),'web_first':web_first,'recheck_failed':recheck_failed,'profile_url':profile_url}
+                'max_profiles':min(limit*5,30),'max_minutes':max_minutes,'created':now(),'web_first':web_first,'recheck_failed':recheck_failed,'profile_url':profile_url}
         self.store.setting('research_plan',result)
         return result
 

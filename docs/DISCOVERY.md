@@ -38,7 +38,7 @@ can click Connect or Send. Jev is optional; hosted web search uses Codex.
 
 Each plan starts with at most 6 search queries. General runs can expand to three
 rounds of two parallel web searches, with 1–10 proposed candidates, 30 profile visits
-and a 15-minute deadline checked between actions. An in-flight browser read may
+and a configurable 1–60 minute deadline (15 by default), checked between actions. An in-flight browser read may
 take up to its timeout after Stop. Model steps have a 120-second deadline and
 are interrupted on cancellation. The web shortlist has a 240-second limit. Rate limits and account challenges stop the run;
 provider retries are disabled for research model calls. No account rotation.
@@ -230,3 +230,8 @@ Worker activity is labeled Web 1 / Web 2 in Research decisions. At the target,
 Stop, deadline, or a provider error, pending web work is canceled and joined before
 the run becomes idle. LinkedIn is never used concurrently. Explicit profile
 rechecks search primary web evidence before opening the requested LinkedIn profile.
+
+Use **Adjust time** beside Prepare research plan to change the time budget.
+Prepare a new plan to apply it; the reviewed plan displays the selected limit.
+The control is unavailable while a job is running. Increasing time does not
+raise the profile-visit or search-round limits.
