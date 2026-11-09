@@ -12,6 +12,7 @@ from datetime import datetime,timezone
 from urllib.parse import urlsplit
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.command import Command
 from selenium.webdriver.support.ui import WebDriverWait
 from .store import profile_key
 from .errors import ProviderError
@@ -33,6 +34,18 @@ def message_time(urn):
     except Exception:raise ProviderError('Cannot verify message date.') from None
 
 
+def incoming_rows(messages, lead, participant_url, thread):
+    """Only verified sender URLs become replies; connection events do not."""
+    allowed={profile_key(participant_url),profile_key(lead['url'])}
+    rows=[]
+    for message in messages:
+        if not message.get('sender') or not message.get('text') or not message.get('id'):continue
+        if profile_key(message['sender']) not in allowed:continue
+        rows.append({'ident':hashlib.sha256((thread+'\n'+message['id']).encode()).hexdigest(),
+            'lead_id':lead['id'],'body':message['text'],'received':message_time(message['id']),'thread':thread})
+    return rows
+
+
 class LinkedInBrowser:
     def __init__(self,settings,store):
         self.settings=settings;self.store=store;self.driver=None
@@ -43,9 +56,35 @@ class LinkedInBrowser:
             options.add_argument('--user-data-dir=/home/seluser/workbench-profile')
             options.add_argument('--window-size=1440,1000')
             options.set_capability('goog:loggingPrefs',{'performance':'ALL'})
-            self.driver=webdriver.Remote(command_executor=self.settings.selenium_url,options=options)
+            saved=self.store.setting('browser_session')
+            if saved:
+                class AttachedDriver(webdriver.Remote):
+                    def start_session(this, capabilities):
+                        this.session_id=saved['id']
+                        this.caps=saved['capabilities']
+                candidate=AttachedDriver(command_executor=self.settings.selenium_url,options=options)
+                try:
+                    candidate.current_url
+                except Exception:
+                    raise ProviderError('Saved browser session is unavailable. Restart the browser container and use Reset browser connection; do not retry uncertain invitations.') from None
+                self.driver=candidate
+            else:
+                self.driver=webdriver.Remote(command_executor=self.settings.selenium_url,options=options)
+                self.store.setting('browser_session',{'id':self.driver.session_id,'capabilities':self.driver.capabilities})
             self.driver.set_page_load_timeout(35)
         return self.driver
+
+    def reset_connection(self):
+        # Explicit operator action after restarting the isolated container.
+        # Never deletes cookies or changes an invitation outcome.
+        if self.driver is not None:
+            self.driver.command_executor.close()
+        self.driver=None
+        self.store.setting('browser_session',False)
+        return {'message':'Connection metadata cleared. Start login again after restarting the browser container. Saved profile cookies were preserved.'}
+
+    def close_transport(self):
+        if self.driver is not None:self.driver.command_executor.close()
 
     def check(self):
         d=self.browser();path=urlsplit(d.current_url).path.lower()
@@ -176,11 +215,7 @@ class LinkedInBrowser:
                     finally:
                         d.close();d.switch_to.window(parent)
                     messages=d.execute_script('''let sender=null;return [...document.querySelectorAll('.msg-thread .msg-s-event-listitem')].map(e=>{const a=e.querySelector('.msg-s-message-group__meta a[href*="/in/"]')||e.querySelector('a.msg-s-event-listitem__link');if(a)sender=a.href;return {id:e.getAttribute('data-event-urn'),sender,text:e.querySelector('.msg-s-event-listitem__body')?.innerText||''};});''')
-                    for message in messages:
-                        if not message.get('sender') or not message.get('text') or not message.get('id'):continue
-                        if profile_key(message['sender']) not in (profile_key(internal),profile_key(lead['url'])):continue
-                        rows.append({'ident':hashlib.sha256((thread+'\n'+message['id']).encode()).hexdigest(),'lead_id':lead['id'],
-                            'body':message['text'],'received':message_time(message['id']),'thread':thread})
+                    rows.extend(incoming_rows(messages,lead,internal,thread))
                 except ProviderError as exc:
                     if self.store.setting('linkedin_restriction') or 'sign-in' in str(exc):raise
                     cases.append({'conversation':card['id'],'reason':str(exc)})

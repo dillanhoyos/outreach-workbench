@@ -1,5 +1,7 @@
 """Local authenticated API. Workers never run on a recurring schedule."""
 import json
+import fcntl
+from contextlib import asynccontextmanager
 import secrets
 import threading
 import uuid
@@ -31,6 +33,17 @@ class SendRequest(BaseModel):
 class ReadRequest(BaseModel):
     limit: int = Field(default=100,ge=1,le=100)
 
+class LeadInput(BaseModel):
+    name: str = Field(min_length=1,max_length=200)
+    company: str = Field(min_length=1,max_length=300)
+    role: str = Field(min_length=1,max_length=300)
+    country: str = Field(min_length=1,max_length=100)
+    url: str = Field(min_length=1,max_length=500)
+    evidence: str = Field(min_length=1,max_length=3000)
+
+class LeadImport(BaseModel):
+    leads: list[LeadInput] = Field(min_length=1,max_length=100)
+
 class AccountRequest(BaseModel):
     profile_url: str = Field(min_length=10,max_length=300)
 
@@ -44,6 +57,12 @@ class HoldRequest(BaseModel):
 
 def create_app(settings=None, provider=None):
     settings=settings or Settings.from_env()
+    settings.data_dir.mkdir(parents=True,exist_ok=True,mode=0o700)
+    process_lock=(settings.data_dir/'instance.lock').open('a')
+    try:fcntl.flock(process_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except BlockingIOError:
+        process_lock.close()
+        raise RuntimeError('Another Workbench process owns this data directory') from None
     store=Store(settings.data_dir/settings.mode)
     app=FastAPI(title='Outreach Workbench',version='0.1.0',docs_url=None,redoc_url=None,openapi_url=None)
     # Live implementation supplied independently, never silently fall back to demo.
@@ -55,6 +74,16 @@ def create_app(settings=None, provider=None):
     executor=ThreadPoolExecutor(max_workers=1)
     busy=threading.Lock()
     app.state.store=store
+
+    @asynccontextmanager
+    async def lifespan(app):
+        try:yield
+        finally:
+            executor.shutdown(wait=True,cancel_futures=True)
+            if hasattr(provider,'linkedin'):provider.linkedin.close_transport()
+            fcntl.flock(process_lock,fcntl.LOCK_UN)
+            process_lock.close()
+    app.router.lifespan_context=lifespan
 
     def auth(authorization: str = Header(default='')):
         if not secrets.compare_digest(authorization,'Bearer '+settings.token):
@@ -103,6 +132,13 @@ def create_app(settings=None, provider=None):
     @app.get('/api/records/{table}',dependencies=[Depends(auth)])
     def records(table:str):return store.list(table)
 
+    @app.post('/api/leads/import',dependencies=[Depends(auth)])
+    def import_leads(body:LeadImport):
+        if busy.locked():raise HTTPException(409,'Wait for the current job')
+        from .store import profile_key
+        for lead in body.leads:profile_key(lead.url)
+        return {'added':sum(store.add_lead(lead.model_dump()) for lead in body.leads)}
+
     @app.post('/api/discover',dependencies=[Depends(auth)])
     def discover(body:DiscoveryRequest):
         def work():
@@ -150,6 +186,9 @@ def create_app(settings=None, provider=None):
 
     @app.post('/api/linkedin/login',dependencies=[Depends(auth)])
     def login():return job('linkedin-login',lambda:linkedin().start_login())
+
+    @app.post('/api/linkedin/reset',dependencies=[Depends(auth)])
+    def reset():return job('linkedin-reset',lambda:linkedin().reset_connection())
 
     @app.post('/api/linkedin/verify',dependencies=[Depends(auth)])
     def verify(body:AccountRequest):return job('linkedin-verify',lambda:linkedin().verify_account(body.profile_url))

@@ -1,0 +1,23 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -c requirements.lock -e '.[test]'
+      - run: pytest -q
+      - run: python scripts/audit_public.py
+      - run: python scripts/setup.py
+      - run: docker compose build app
+      - run: docker compose up -d --wait app
+      - run: python scripts/demo_smoke.py
+      - if: always()
+        run: docker compose down

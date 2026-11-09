@@ -45,3 +45,18 @@ def test_message_timestamp_not_guessed():
     assert message_time('(urn,2-'+encoded+')').startswith('2023-11-14')
     for value in ['yesterday','', '(urn,2-YWJj)']:
         with pytest.raises(ProviderError):message_time(value)
+
+
+def test_only_incoming_messages_not_connection_events():
+    from workbench.linkedin import incoming_rows
+    encoded=base64.urlsafe_b64encode(b'1700000000000_fixture').decode().rstrip('=')
+    urn='(urn,2-'+encoded+')'
+    recipient='https://www.linkedin.com/in/example-recipient'
+    lead={'id':'fixture','url':recipient}
+    messages=[{'id':urn,'sender':recipient,'text':'=not a formula, just a message'},
+              {'id':urn+'out','sender':'https://www.linkedin.com/in/example-self','text':'Outgoing'},
+              {'id':urn+'event','sender':recipient,'text':''},
+              {'id':urn+'unknown','sender':None,'text':'Unknown author'}]
+    r=incoming_rows(messages,lead,recipient,'fixture-thread')
+    assert len(r)==1 and r[0]['body'].startswith('=not')
+    assert incoming_rows(messages,lead,recipient,'fixture-thread')==r

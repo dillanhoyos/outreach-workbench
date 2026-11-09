@@ -29,3 +29,21 @@ def test_end_to_end_demo_and_auth(tmp_path):
         client.post('/api/replies/read',json={'limit':100});wait()
         assert len(client.get('/api/records/replies').json())==1
         assert 'fictional' in client.get('/').text
+
+
+def test_process_lock_and_mode_isolation(tmp_path):
+    demo=Settings(tmp_path,'x'*32,'demo','',10,'','','')
+    with TestClient(create_app(demo)) as client:
+        import pytest
+        with pytest.raises(RuntimeError,match='Another'):
+            create_app(demo)
+        client.headers['Authorization']='Bearer '+'x'*32
+        record={'name':'Example Person','role':'Controller','company':'Example Company','country':'Example',
+                'url':'https://www.linkedin.com/in/example-import','evidence':'Synthetic fixture'}
+        assert client.post('/api/leads/import',json={'leads':[record]}).json()['added']==1
+        assert client.post('/api/leads/import',json={'leads':[record]}).json()['added']==0
+    from workbench.demo import DemoProvider
+    live=Settings(tmp_path,'x'*32,'live','',10,'','','')
+    with TestClient(create_app(live,provider=DemoProvider())) as client:
+        client.headers['Authorization']='Bearer '+'x'*32
+        assert client.get('/api/records/leads').json()==[]

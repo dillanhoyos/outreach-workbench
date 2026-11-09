@@ -16,7 +16,9 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
   browser:
-    image: selenium/standalone-chromium:4.29.0-20250222
+    build:
+      context: .
+      dockerfile: Dockerfile.browser
     profiles: [live]
     shm_size: 2gb
     ports:

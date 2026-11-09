@@ -1,0 +1,4 @@
+FROM selenium/standalone-chromium:4.52.0-20261101
+USER root
+RUN mkdir -p /home/seluser/workbench-profile && chown seluser:seluser /home/seluser/workbench-profile && chmod 700 /home/seluser/workbench-profile
+USER seluser

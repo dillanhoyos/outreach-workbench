@@ -12,6 +12,8 @@ def main():
     sub.add_parser('schema')
     sub.add_parser('login')
     sub.add_parser('sync')
+    p=sub.add_parser('import');p.add_argument('file')
+    sub.add_parser('reset-browser')
     p=sub.add_parser('verify');p.add_argument('profile_url')
     p=sub.add_parser('discover');p.add_argument('query');p.add_argument('--limit',type=int,default=10);p.add_argument('--locations',nargs='*',default=[]);p.add_argument('--domains',nargs='*',default=[]);p.add_argument('--allow-paid-enrichment',action='store_true')
     p=sub.add_parser('read');p.add_argument('--limit',type=int,default=100)
@@ -23,8 +25,11 @@ def main():
         import uvicorn
         uvicorn.run('workbench.app:create_app',factory=True,host='0.0.0.0',port=8080)
         return
-    routes={'status':('GET','/api/status',None),'schema':('GET','/api/schema',None),'login':('POST','/api/linkedin/login',{}),'sync':('POST','/api/sheets/sync',{})}
+    routes={'status':('GET','/api/status',None),'schema':('GET','/api/schema',None),'login':('POST','/api/linkedin/login',{}),'sync':('POST','/api/sheets/sync',{}),'reset-browser':('POST','/api/linkedin/reset',{})}
     if args.command=='discover':route=('POST','/api/discover',{'query':args.query,'limit':args.limit,'locations':args.locations,'domains':args.domains,'allow_paid_enrichment':args.allow_paid_enrichment})
+    elif args.command=='import':
+        from pathlib import Path
+        route=('POST','/api/leads/import',{'leads':json.loads(Path(args.file).read_text())})
     elif args.command=='verify':route=('POST','/api/linkedin/verify',{'profile_url':args.profile_url})
     elif args.command=='read':route=('POST','/api/replies/read',{'limit':args.limit})
     elif args.command=='list':route=('GET','/api/records/'+args.table,None)

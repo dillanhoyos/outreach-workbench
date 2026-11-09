@@ -1,0 +1,3 @@
+<!doctype html><meta charset="utf-8"><title>Fictional profile fixture</title>
+<main><section><h1>Example Person</h1><p>Controller at Example Company</p><button id="connect" onclick="document.querySelector('[role=dialog]').hidden=false">Connect</button><button id="pending" hidden>Pending</button></section></main>
+<div role="dialog" hidden><button onclick="document.querySelector('textarea').hidden=false">Add a note</button><textarea hidden></textarea><button onclick="window.sends=(window.sends||0)+1;this.parentElement.hidden=true;document.querySelector('#connect').hidden=true;document.querySelector('#pending').hidden=false">Send</button></div>

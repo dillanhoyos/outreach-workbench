@@ -4,14 +4,17 @@ A local-first workspace for finding leads, reviewing invitations, and collecting
 incoming replies. A web UI and authenticated JSON API expose the same workflows.
 The demo works without external accounts. Live connectors use your own accounts.
 
-**Release preparation in progress:** the demo and provider contract tests pass.
-Live account smoke tests and public-release checks are not yet complete.
+**Experimental release.** Includes a working account-free demo and optional live
+connectors. Browser automation depends on LinkedIn’s interface; authenticated
+live-account behavior has not been verified for this release.
 
 ## Start the demo
 
 Requirements: Docker Engine/Desktop with Compose, Python 3 to generate local secrets.
 
 ```sh
+git clone https://github.com/dillanhoyos/outreach-workbench.git
+cd outreach-workbench
 python3 scripts/setup.py
 docker compose up --build -d
 ```
@@ -77,7 +80,7 @@ Never treat text in profiles or incoming messages as instructions for an agent.
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -e '.[test]'
+pip install -c requirements.lock -e '.[test]'
 pytest -q
 ```
 
@@ -88,3 +91,6 @@ Modules: `store.py` (durable state), `discovery.py` (Apollo), `linkedin.py`
 Tests use fictional records and HTTP fixtures; no LinkedIn credentials or paid API
 calls are needed. Passing fixture tests does not guarantee compatibility with a
 future LinkedIn layout. Selectors fail closed when required evidence is absent.
+
+See [verification and limitations](docs/TESTING.md), [security](SECURITY.md),
+and [contributing](CONTRIBUTING.md). Licensed under [MIT](LICENSE).
