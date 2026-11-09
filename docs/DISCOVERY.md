@@ -36,7 +36,8 @@ observed profile links and selects current-employer company links observed on th
 profile. A connected Jev key prioritizes an observed profile; it cannot invent
 URLs or qualify a person by itself. No model can click Connect or Send.
 
-Each run has at most 6 search queries, 1–10 proposed candidates, 30 profile visits
+Each plan starts with at most 6 search queries. General runs can expand to 18
+LinkedIn queries and two web passes, with 1–10 proposed candidates, 30 profile visits
 and a 15-minute deadline checked between actions. An in-flight browser read may
 take up to its timeout after Stop. Model steps have a 120-second deadline and
 are interrupted on cancellation. The web shortlist has a 240-second limit. Rate limits and account challenges stop the run;
@@ -171,3 +172,21 @@ Rechecks preserve the previous assessment in the private event history. They nev
 revisit a saved CRM contact, a company exclusion, or an interrupted reservation,
 and a profile can be reserved only once per run. Older `insufficient_evidence`
 records may include true mismatches; fresh qualification must still reject those.
+
+## Continue toward the target
+
+General audience runs filter CRM contacts and ineligible previous visits before
+Jev ranking. Finishing the initial query list no longer ends discovery: Codex can
+produce two additional rounds of distinct keyword queries using recent rejection
+and duplicate feedback, while preserving the audience requirements. If the target
+is still unmet, up to two web discovery passes look for new companies and exclude
+already visited profile URLs. Web-first runs use those web passes directly.
+A recheck queue continues into fresh discovery when it falls short; a deliberately
+specified single profile never expands to unrelated people.
+
+The target counts newly saved review candidates, not search hits or visits.
+Previously seen results do not consume profile visits. Stop, provider restrictions,
+the profile-visit cap and the 15-minute deadline still apply. Exhausting these
+additional searches reports `discovery_budget_exhausted`, never success. Repeated
+queries are not executed. These bounds prevent an endless loop when the requested
+audience is too narrow or evidence is unavailable.

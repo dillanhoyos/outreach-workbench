@@ -181,6 +181,70 @@ class Discovery:
             'An explicit role/employer in the supplied headline is acceptable self-reported current-role evidence; quote the entire headline exactly. Never treat former/ex roles as current. Use the profile heading as name. If evidence is missing or past-only, qualified=false. Do not infer from recommendations or posts.',
             {'brief':plan['prompt'],'profile':profile,'company':company},Candidate)
 
+    def fresh_links(self, links, plan, run_id):
+        """Filter without reserving: an unseen candidate is reserved only on visit."""
+        fresh=[];seen=set()
+        own=(self.store.setting('account') or {}).get('key')
+        with self.store.db() as db:
+            for link in links:
+                key=profile_key(link['url'])
+                if key in seen or key==own:continue
+                seen.add(key)
+                if db.execute('SELECT 1 FROM leads WHERE profile_key=?',(key,)).fetchone():continue
+                previous=db.execute('SELECT state,run_id FROM research_visits WHERE profile_key=?',(key,)).fetchone()
+                if previous and not (plan.get('recheck_failed') and previous['run_id']!=run_id and previous['state'] in ('insufficient_evidence','current_employer_unclear')):continue
+                fresh.append(link)
+        removed=len(links)-len(fresh)
+        if removed:self.event(run_id,'filtered_seen',{'reason':f'Excluded {removed} known, previously visited or duplicate profiles before ranking. {len(fresh)} candidates remain.'})
+        return fresh
+
+    def batches(self, plan, run_id, report, guard, seeds):
+        """Continue discovery after duplicates/failed qualification, never after limits."""
+        from .research_web import discover
+        def remaining():
+            guard()
+            return report['staged']<plan['limit'] and report['visited']<plan['max_profiles']
+        if seeds is not None:
+            yield seeds
+            # A deliberately targeted run must never expand to unrelated people.
+            if plan.get('profile_url'):return
+        tried=[]
+        queries=list(plan['queries'])
+        if not plan.get('web_first'):
+            for round_number in range(3):
+                for query in queries:
+                    if not remaining():return
+                    if fold(query) in {fold(q) for q in tried}:continue
+                    tried.append(query)
+                    self.event(run_id,'searching',{'query':query,'reason':'Searching for fresh candidates; previously seen profiles do not consume the visit budget.'})
+                    page,links=self.browser.search(query)
+                    self.event(run_id,'search',{'query':query,'url':page['url'],'observed_profiles':len(links)})
+                    links=self.fresh_links(links,plan,run_id)
+                    if links and self.jev and self.jev.key():
+                        from .jev import JevAdvisor
+                        self.event(run_id,'ranking',{'reason':'Jev is prioritizing only eligible, unvisited profile links.'})
+                        links=JevAdvisor(self.jev.key()).rank_profiles(links,plan['prompt'])
+                    yield links
+                if not remaining():return
+                if round_number==2:break
+                self.event(run_id,'adapting_search',{'reason':f'{report["staged"]}/{plan["limit"]} saved. Preparing different queries while preserving the audience requirements.'})
+                with self.store.db() as db:
+                    feedback=[json.loads(r['detail']).get('reason','') for r in db.execute("SELECT detail FROM research_events WHERE run_id=? AND kind IN ('insufficient_evidence','current_employer_unclear','filtered_seen') ORDER BY id DESC LIMIT 8",(run_id,))]
+                revised=self.ask('Produce up to six NEW LinkedIn people keyword searches. Earlier queries were exhausted or returned already-seen profiles. '
+                    'Change company names, terminology or search combinations, never relax the brief criteria. Do not repeat previous queries. Keywords only, no URLs.',
+                    {'brief':plan['prompt'],'previous_queries':tried,'feedback':feedback,'remaining':plan['limit']-report['staged']},Plan)
+                queries=[q for q in revised.queries if q.strip() and len(q)<=250 and '://' not in q and fold(q) not in {fold(x) for x in tried}]
+                if not queries:break
+        # Company-first web discovery is also a recovery route for exhausted
+        # LinkedIn results, not only an initial-plan checkbox.
+        for round_number in range(2):
+            if not remaining():return
+            self.event(run_id,'expanding_web',{'reason':f'{report["staged"]}/{plan["limit"]} saved. Looking for new companies on the web, then confirming people on LinkedIn.'})
+            web_plan={**plan,'limit':plan['limit']-report['staged'],'exclude_visited':True,'queries':tried or plan['queries']}
+            links=discover(self,web_plan,run_id,guard)
+            yield self.fresh_links(links,plan,run_id)
+        if remaining():report['reason']='discovery_budget_exhausted'
+
     def run(self, plan_id, history_ack):
         plan=self.store.setting('research_plan')
         if not plan or plan['id']!=plan_id: raise ProviderError('Prepare a new research plan first.')
@@ -206,22 +270,8 @@ class Discovery:
                 with self.store.db() as db:
                     web_links=[{'url':r['url'],'label':'Prior evidence failure'} for r in db.execute("SELECT url FROM research_visits WHERE state IN ('insufficient_evidence','current_employer_unclear') ORDER BY created DESC LIMIT ?",(plan['max_profiles'],))]
                 if not web_links:web_links=None
-            if plan.get('web_first') and web_links is None:
-                from .research_web import discover
-                web_links=discover(self,plan,run_id,guard)
-            for query in ([None] if web_links is not None else plan['queries']):
+            for links in self.batches(plan,run_id,report,guard,web_links):
                 guard()
-                if web_links is not None:
-                    links=web_links
-                else:
-                    self.event(run_id,'searching',{'query':query,'reason':'Using a query from your reviewed plan.'})
-                    page,links=self.browser.search(query)
-                    self.event(run_id,'search',{'query':query,'url':page['url'],'observed_profiles':len(links)})
-                    if self.jev and self.jev.key():
-                        from .jev import JevAdvisor
-                        self.event(run_id,'ranking',{'reason':'Jev is prioritizing the observed profile links against your brief.'})
-                        links=JevAdvisor(self.jev.key()).rank_profiles(links,plan['prompt'])
-                        if links:self.event(run_id,'prioritized',{'url':links[0]['url'],'label':links[0]['label'],'reason':'First link after the Jev prioritization step; it is not yet qualified.'})
                 for link in links:
                     guard()
                     if report['staged']>=plan['limit'] or report['visited']>=plan['max_profiles']: break
@@ -304,6 +354,9 @@ class Discovery:
             with self.store.db() as db:
                 search_count=db.execute("SELECT COUNT(*) FROM research_events WHERE run_id=? AND kind='web_search' AND json_type(detail,'$.query') IS NOT NULL",(run_id,)).fetchone()[0]
                 counts={r['kind']:r['n'] for r in db.execute('SELECT kind,COUNT(*) AS n FROM research_events WHERE run_id=? GROUP BY kind',(run_id,))}
+            report['linkedin_searches']=counts.get('search',0)
+            report['query_revisions']=counts.get('adapting_search',0)
+            report['web_expansions']=counts.get('expanding_web',0)
             report['web_fallbacks']=counts.get('web_fallback',0)
             report['rechecked']=counts.get('rechecking',0)
             report['web_first']=bool(plan.get('web_first'))

@@ -124,4 +124,4 @@ def test_missing_company_skips_model_and_headline_match_skips_selection(tmp_path
     browser2.profile=explicit
     calls.clear()
     result=engine2.run(plan2['id'],True)
-    assert calls==['Candidate'] and result['staged']==1
+    assert calls.count('Candidate')==1 and 'Employer' not in calls and result['staged']==1

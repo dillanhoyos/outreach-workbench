@@ -124,6 +124,8 @@ def discover(engine,plan,run_id,guard):
     engine.event(run_id,'web_search',{'reason':'Finding primary company evidence before visiting LinkedIn. Hosted searches appear here, not in the browser.'})
     with engine.store.db() as db:
         known=[r[0] for r in db.execute('SELECT url FROM leads')]
+        if plan.get('exclude_visited'):
+            known.extend(r[0] for r in db.execute('SELECT url FROM research_visits'))
     data=reason(engine.auth,
         'Use web search now to shortlist people matching the brief. Search company-first. '
         'Use primary sources: accelerator directories for exact batch, official company pages for product/sector. '

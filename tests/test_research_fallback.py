@@ -6,6 +6,7 @@ from workbench import research_web
 
 def test_missing_company_fact_uses_web_and_saves_only_matching_profile(tmp_path,monkeypatch):
     store,browser,engine,plan=setup(tmp_path)
+    plan['profile_url']=PROFILE;store.setting('research_plan',plan)
     calls=[]
     def missing_first(*args):
         result=model(*args)
@@ -31,6 +32,7 @@ def test_confirmed_mismatch_does_not_trigger_web(tmp_path,monkeypatch):
         if args[3]['title']=='Candidate':answer.update(qualified=False,needs_web_evidence=False)
         return answer
     store,browser,engine,plan=setup(tmp_path,mismatch)
+    plan['profile_url']=PROFILE;store.setting('research_plan',plan)
     monkeypatch.setattr(research_web,'discover',lambda *a:pytest.fail('No fallback for a confirmed mismatch'))
     assert engine.run(plan['id'],True)['staged']==0
 
