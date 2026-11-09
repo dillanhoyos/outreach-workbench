@@ -101,16 +101,16 @@ class Discovery:
         self.store.setting('research_plan',False)
         return {'message':'New research brief started. CRM records are unchanged.'}
 
-    def prepare(self, prompt, limit):
+    def prepare(self, prompt, limit, web_first=False):
         if not 1 <= limit <= 10: raise ProviderError('Start with 1–10 candidates per research run.')
-        plan=self.ask('Plan up to six concise LinkedIn people-search queries for this brief. '
+        plan=self.ask(('Plan up to six concise web searches for primary company sources, then LinkedIn confirmation. ' if web_first else 'Plan up to six concise LinkedIn people-search queries for this brief. ')+
                       'Include the sector, role families and geography. Explain the qualification criteria. '
                       'Queries are keywords, not URLs. Do not narrow accounting/risk roles to CFOs unless asked.',
                       {'brief':prompt},Plan)
         if any(not q.strip() or len(q)>250 or '://' in q for q in plan.queries):
             raise ProviderError('Research plan contained an invalid search query.')
         result={'id':uuid.uuid4().hex,'prompt':prompt,'limit':limit,**plan.model_dump(),
-                'max_profiles':min(limit*5,30),'max_minutes':15,'created':now()}
+                'max_profiles':min(limit*5,30),'max_minutes':15,'created':now(),'web_first':web_first}
         self.store.setting('research_plan',result)
         return result
 
@@ -139,19 +139,21 @@ class Discovery:
         headline=fold(profile.get('headline',''))
         headline_evidence=bool(headline and fold(d.current_role_quote)==headline and
             not re.search(r'\b(former|formerly|previous|past|ex|anterior)\b',headline))
-        if (not d.qualified or not all(fold(v) for v in [d.name,d.company,d.role,d.country,d.current_role_quote,d.location_quote,d.sector_quote])
+        if (not d.qualified or not all(fold(v) for v in [d.name,d.company,d.role,d.current_role_quote,d.sector_quote])
             or fold(d.name)!=fold(profile['title'])
             or not (headline_evidence or re.search(r'\b(present|actualidad|actualmente|current|currently|presente|atual|atualmente)\b',fold(d.current_role_quote)))
             or fold(d.current_role_quote) not in p
             or fold(d.role) not in fold(d.current_role_quote)
             or fold(d.company) not in fold(d.current_role_quote)
             or fold(d.company) not in fold(company['title'])
+            or (not company.get('company_criteria_quotes') and not all([d.country,d.location_quote]))
+            or (bool(d.country)!=bool(d.location_quote))
             or fold(d.location_quote) not in p
             or fold(d.sector_quote) not in c):
             return 'insufficient_evidence'
         evidence=json.dumps({'profile_url':url,'company_url':company['url'],
             'current_role_quote':d.current_role_quote,'role_source':'profile_headline' if headline_evidence else 'dated_experience','location_quote':d.location_quote,
-            'sector_quote':d.sector_quote,'assessment':d.reason,'captured_at':now()},ensure_ascii=False)
+            'sector_quote':d.sector_quote,'company_criteria_quotes':company.get('company_criteria_quotes',[]),'company_assessment':company.get('company_assessment',''),'assessment':d.reason,'captured_at':now()},ensure_ascii=False)
         with self.store.db() as db:
             db.execute('BEGIN IMMEDIATE')
             if self.blocked(d.company,db): return 'company_replied_or_held'
@@ -176,16 +178,23 @@ class Discovery:
             self.event(run_id,'checking_browser',{'reason':'Opening LinkedIn with the signed-in browser session.'})
             self.browser.ensure_ready()
             company_cache={}
-            for query in plan['queries']:
+            web_links=None
+            if plan.get('web_first'):
+                from .research_web import discover
+                web_links=discover(self,plan,run_id,guard)
+            for query in ([None] if web_links is not None else plan['queries']):
                 guard()
-                self.event(run_id,'searching',{'query':query,'reason':'Using a query from your reviewed plan.'})
-                page,links=self.browser.search(query)
-                self.event(run_id,'search',{'query':query,'url':page['url'],'observed_profiles':len(links)})
-                if self.jev and self.jev.key():
-                    from .jev import JevAdvisor
-                    self.event(run_id,'ranking',{'reason':'Jev is prioritizing the observed profile links against your brief.'})
-                    links=JevAdvisor(self.jev.key()).rank_profiles(links,plan['prompt'])
-                    if links:self.event(run_id,'prioritized',{'url':links[0]['url'],'label':links[0]['label'],'reason':'First link after the Jev prioritization step, which may retain the original order; it is not yet qualified.'})
+                if web_links is not None:
+                    links=web_links
+                else:
+                    self.event(run_id,'searching',{'query':query,'reason':'Using a query from your reviewed plan.'})
+                    page,links=self.browser.search(query)
+                    self.event(run_id,'search',{'query':query,'url':page['url'],'observed_profiles':len(links)})
+                    if self.jev and self.jev.key():
+                        from .jev import JevAdvisor
+                        self.event(run_id,'ranking',{'reason':'Jev is prioritizing the observed profile links against your brief.'})
+                        links=JevAdvisor(self.jev.key()).rank_profiles(links,plan['prompt'])
+                        if links:self.event(run_id,'prioritized',{'url':links[0]['url'],'label':links[0]['label'],'reason':'First link after the Jev prioritization step; it is not yet qualified.'})
                 for link in links:
                     guard()
                     if report['staged']>=plan['limit'] or report['visited']>=plan['max_profiles']: break
@@ -197,7 +206,10 @@ class Discovery:
                     profile=self.browser.profile(url)
                     companies=profile['companies']
                     direct=[item for item in companies if fold(item['label']) and fold(item['label']) in fold(profile.get('headline',''))]
-                    if not companies:
+                    if link.get('web_company'):
+                        company_cache[link['web_company']['url']]=link['web_company']
+                        selected=Employer(company_url=link['web_company']['url'],reason='Company criteria checked against captured primary web evidence; confirming current role on LinkedIn.')
+                    elif not companies:
                         selected=Employer(company_url='',reason='No observed employer URL; skipped without a model call.')
                     elif len(direct)==1:
                         selected=Employer(company_url=direct[0]['url'],reason='Observed company link matches the profile headline; qualification still required.')
@@ -207,6 +219,7 @@ class Discovery:
                             'Only use an exact URL from companies. Return empty company_url if current employment is unclear.',
                             {'brief':plan['prompt'],'profile':profile},Employer)
                     observed={x['url'] for x in profile['companies']}
+                    if link.get('web_company'):observed.add(link['web_company']['url'])
                     outcome='current_employer_unclear';company={};candidate=None
                     if selected.company_url in observed:
                         guard()
@@ -219,7 +232,8 @@ class Discovery:
                         else:
                             self.event(run_id,'qualifying',{'url':url,'reason':'Codex is checking your brief against profile and company evidence. Source quotations are checked before saving.'})
                             candidate=self.ask('Qualify this person against ALL brief criteria. Current role/employer must be explicit in their own profile. '
-                                'The company page must establish sector. Location must be on the person profile. '
+                                'The company page must establish sector and any batch requirement. In web-first mode it is a captured primary web source. '
+                                'Location must be on the person profile when required by the brief. In web-first mode only, if geography is unrestricted, country and location_quote may both be empty. '
                                 'Quote exact contiguous passages from supplied text. current_role_quote must include the exact role AND employer and current employment evidence. '
                                 'An explicit role/employer in the supplied headline is acceptable self-reported current-role evidence; quote the entire headline exactly. Never treat former/ex roles as current. Use the profile heading as name. If evidence is missing or past-only, qualified=false. Do not infer from recommendations or posts.',
                                 {'brief':plan['prompt'],'profile':profile,'company':company},Candidate)
@@ -250,6 +264,12 @@ class Discovery:
             report['reason']='Research interrupted by an unexpected browser or model error. Inspect the last visited page; no automatic retry.'
             self.event(run_id,'stopped',{'reason':report['reason']})
         finally:
+            with self.store.db() as db:
+                counts={r['kind']:r['n'] for r in db.execute('SELECT kind,COUNT(*) AS n FROM research_events WHERE run_id=? GROUP BY kind',(run_id,))}
+            report['web_first']=bool(plan.get('web_first'))
+            report['web_searches']=counts.get('web_search',0)-(1 if plan.get('web_first') and counts.get('web_search') else 0)
+            report['web_sources']=counts.get('web_source',0)
+            report['web_excluded']=counts.get('web_excluded',0)
             report['seconds']=round(time.monotonic()-start,1)
             report['staged_per_visit']=round(report['staged']/report['visited'],3) if report['visited'] else 0
             self.store.setting('research_report',report)

@@ -27,11 +27,13 @@ with tempfile.TemporaryFile() as archive:
         raise SystemExit('Codex package integrity check failed.')
     archive.seek(0)
     with tarfile.open(fileobj=archive, mode='r:gz') as package:
-        binaries = [m for m in package.getmembers() if m.isfile() and m.name.endswith('/bin/codex')]
-        if len(binaries) != 1:
-            raise SystemExit('Unexpected Codex package layout.')
         target = Path(os.environ.get('WORKBENCH_CODEX_INSTALL', '/usr/local/bin/codex'))
-        with package.extractfile(binaries[0]) as source, target.open('wb') as out:
-            while chunk := source.read(1024 * 1024): out.write(chunk)
-        target.chmod(0o755)
+        for name in ('codex','codex-code-mode-host'):
+            binaries = [m for m in package.getmembers() if m.isfile() and m.name.endswith('/bin/'+name)]
+            if len(binaries) != 1:
+                raise SystemExit('Unexpected Codex package layout.')
+            destination = target if name=='codex' else target.with_name(name)
+            with package.extractfile(binaries[0]) as source, destination.open('wb') as out:
+                while chunk := source.read(1024 * 1024): out.write(chunk)
+            destination.chmod(0o755)
 print(f'Installed official Codex {VERSION} ({arch}); package integrity verified.')

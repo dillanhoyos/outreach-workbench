@@ -30,6 +30,7 @@ class DiscoveryRequest(BaseModel):
     limit: int = Field(default=3, ge=1, le=100)
     plan_id: str = Field(default="",max_length=64)
     history_ack: bool = False
+    web_first: bool = False
 
 class BriefMessage(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -318,7 +319,7 @@ def create_app(settings=None, provider=None):
         if settings.mode!='live' or not state.get('plan_ready'):
             raise HTTPException(400,state.get('reason') or 'Research plans require live mode.')
         if body.limit>10:raise HTTPException(400,'Use 1–10 candidates per research run.')
-        return job('discovery-plan',lambda:research.prepare(body.prompt,body.limit))
+        return job('discovery-plan',lambda:research.prepare(body.prompt,body.limit,body.web_first))
 
     @app.post('/api/discovery/stop',dependencies=[Depends(auth)])
     def research_stop():
