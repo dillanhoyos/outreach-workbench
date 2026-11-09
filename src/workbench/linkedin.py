@@ -50,6 +50,7 @@ def incoming_rows(messages, lead, participant_url, thread):
 class LinkedInBrowser:
     def __init__(self,settings,store):
         self.settings=settings;self.store=store;self.driver=None
+        self.invitation_receipt=None;self._invitation_audit=None
 
     def browser(self):
         if self.driver is None:
@@ -100,7 +101,11 @@ class LinkedInBrowser:
                 raise ProviderError('LinkedIn reported a restriction. Work stopped; review it manually before continuing.')
         # A real rate-limit response is never hidden behind a successful page load.
         import json
-        for entry in d.execute(Command.GET_LOG, {'type':'performance'})['value']:
+        entries=d.execute(Command.GET_LOG, {'type':'performance'})['value']
+        if self.invitation_receipt:
+            self.invitation_receipt.feed(entries)
+            if self._invitation_audit:self._invitation_audit()
+        for entry in entries:
             try:m=json.loads(entry['message'])['message']
             except (KeyError,ValueError):continue
             response=m.get('params',{}).get('response',{})
@@ -156,44 +161,135 @@ class LinkedInBrowser:
             raise ProviderError('Connect controls changed during Jev selection. No click attempted.')
         return current[selected]
 
-    def topcard(self):
+    def topcard(self,expected_name=None):
         d=self.browser()
-        WebDriverWait(d,12).until(lambda d:d.find_elements(By.CSS_SELECTOR,'main h1'))
-        h=d.find_element(By.CSS_SELECTOR,'main h1')
-        return h.find_element(By.XPATH,'ancestor::section[1]')
+        def locate(_):
+            candidates=[e for e in d.find_elements(By.CSS_SELECTOR,'main h1,main h2') if e.is_displayed()]
+            headings=[e for e in candidates if not expected_name or normalized(e.text)==normalized(expected_name)]
+            if not headings:return False
+            h=headings[0]
+            return d.execute_script("""
+                const h=arguments[0];let e=h.parentElement;
+                for(let n=0;e && n<18;n++,e=e.parentElement){
+                  if(e.matches('main,body,article,aside'))return null;
+                  const actions=Array.from(e.querySelectorAll('button,a,[role="button"]')).some(x=>x.getClientRects().length && ['Connect','Conectar','More','Más','Pending','Pendiente','Follow','Seguir'].includes((x.innerText||'').trim()));
+                  if(actions && e.innerText.length<7000)return e;
+                }return null;
+            """,h)
+        return WebDriverWait(d,12).until(locate)
+
+    def open_invitation(self,card,lead):
+        controls=[e for e in card.find_elements(By.CSS_SELECTOR,'button,a,[role="button"]')
+                  if e.is_displayed() and e.is_enabled() and e.text.strip() in ('Connect','Conectar')]
+        if controls:
+            if len(controls)!=1:raise ProviderError('Ambiguous recipient Connect controls. No click attempted.')
+            controls[0].click();return
+        self.unique_button(card,{'More','Más'}).click()
+        from .invitation_receipt import invite_url_matches
+        def observed(_):
+            links=[e for e in self.browser().find_elements(By.CSS_SELECTOR,'a[href]') if e.is_displayed() and e.is_enabled()
+                   and e.text.strip() in ('Connect','Conectar') and invite_url_matches(e.get_attribute('href') or '',lead['url'])]
+            return links if links else False
+        links=WebDriverWait(self.browser(),8).until(observed)
+        if len(links)!=1:raise ProviderError('Ambiguous invitation link. No invitation control clicked.')
+        self.check()
+        if profile_key(self.browser().current_url)!=profile_key(lead['url']):raise ProviderError('Profile changed while opening invitation menu.')
+        links[0].click()
+
+    def invitation_form(self,lead):
+        from .invitation_receipt import invite_url_matches
+        def locate(d):
+            dialogs=[e for e in d.find_elements(By.CSS_SELECTOR,'[role="dialog"]') if e.is_displayed()]
+            if len(dialogs)==1:return dialogs[0]
+            if not dialogs and invite_url_matches(d.current_url,lead['url']):
+                main=d.find_elements(By.CSS_SELECTOR,'main')
+                if len(main)==1:return main[0]
+            return False
+        return WebDriverWait(self.browser(),8).until(locate)
+
+    def collect_invitation(self):
+        receipt=self.invitation_receipt
+        if receipt is None:return
+        try:receipt.feed(self.browser().execute(Command.GET_LOG,{'type':'performance'})['value'])
+        except Exception:receipt.unavailable=True
+        if self._invitation_audit:self._invitation_audit()
+        if receipt.rate_limited:
+            self.store.setting('linkedin_restriction',{'reason':'HTTP 429','at':datetime.now(timezone.utc).isoformat()})
+
+    def invitation_feedback(self,lead):
+        # Network first: a stale DOM or a renderer timeout cannot hide an accepted POST.
+        self.collect_invitation()
+        r=self.invitation_receipt
+        if r.accepted:return 'network_200'
+        if r.rate_limited:raise ProviderError('LinkedIn returned HTTP 429. Work stopped without retry.')
+        if r.rejected:raise ProviderError('LinkedIn rejected the invitation request. No automatic retry.')
+        if len(r.requests)>1:raise ProviderError('Multiple invitation requests observed. Review the receipt; no retry.')
+        self.check()
+        # check() can collect additional network events too.
+        if r.accepted:return 'network_200'
+        card=self.topcard(lead['name'])
+        if profile_key(self.browser().current_url)!=profile_key(lead['url']):return False
+        if any(e.is_displayed() and e.text.strip() in ('Pending','Pendiente') for e in card.find_elements(By.CSS_SELECTOR,'button,[role="button"]')):return 'pending'
+        return False
 
     def send(self,lead):
-        self.require_session()
-        self.navigate(lead['url'])
-        d=self.browser();card=self.topcard()
-        if profile_key(d.current_url)!=profile_key(lead['url']) or normalized(card.find_element(By.CSS_SELECTOR,'h1').text)!=normalized(lead['name']):
-            return {'status':'blocked','evidence':'Recipient identity mismatch; no send attempted.'}
-        if normalized(lead['company']) not in normalized(card.text):
-            return {'status':'blocked','evidence':'Current company not corroborated in the profile top card; no send attempted.'}
-        labels={e.text.strip() for e in card.find_elements(By.CSS_SELECTOR,'button,[role="button"]') if e.is_displayed()}
-        if labels & {'Pending','Pendiente','Message','Mensaje','Enviar mensaje'}:
-            return {'status':'skipped','evidence':'Pending invitation or existing connection visible; no send attempted.'}
-        # Only a directly visible top-card Connect button is supported. Never
-        # select a recommendation card or a global matching button.
-        self.connect_button(card).click()
-        modal=WebDriverWait(d,8).until(lambda d:next((e for e in d.find_elements(By.CSS_SELECTOR,'[role="dialog"]') if e.is_displayed()),False))
-        self.check()
-        if modal.find_elements(By.CSS_SELECTOR,'input[type="email"]'):
-            return {'status':'blocked','evidence':'Recipient email required; no send attempted.'}
-        self.unique_button(modal,{'Add a note','Añadir una nota','Agregar una nota'}).click()
-        fields=[e for e in modal.find_elements(By.CSS_SELECTOR,'textarea') if e.is_displayed()]
-        if len(fields)!=1:raise ProviderError('Invitation note field is ambiguous.')
-        fields[0].send_keys(lead['note'])
-        if fields[0].get_attribute('value')!=lead['note']:raise ProviderError('Invitation note did not match the approved text.')
-        self.check()
-        self.unique_button(modal,{'Send','Enviar','Send invitation','Enviar invitación'}).click()
-        deadline=time.monotonic()+10
-        while time.monotonic()<deadline:
+        phase='session';clicked=False;self.invitation_receipt=None
+        def audit():
+            if lead.get('id'):
+                self.store.invitation_audit(lead['id'],phase,clicked,self.invitation_receipt.snapshot() if self.invitation_receipt else {})
+        def step(name):
+            nonlocal phase
+            phase=name;audit()
+        def result(status,evidence):
+            audit()
+            return {'status':status,'evidence':evidence}
+        self._invitation_audit=audit
+        try:
+            audit();self.require_session();step('profile_navigation')
+            self.navigate(lead['url']);d=self.browser();step('profile_identity')
+            card=self.topcard(lead['name'])
+            headings=[h for h in card.find_elements(By.CSS_SELECTOR,'h1,h2') if h.is_displayed() and normalized(h.text)==normalized(lead['name'])]
+            if profile_key(d.current_url)!=profile_key(lead['url']) or not headings:
+                return result('blocked','Recipient identity mismatch; no send click attempted.')
+            labels={e.text.strip() for e in card.find_elements(By.CSS_SELECTOR,'button,[role="button"]') if e.is_displayed()}
+            if labels & {'Pending','Pendiente'} or (labels & {'Message','Mensaje','Enviar mensaje'} and re.search(r'(?m)^\s*(?:·\s*)?(?:1st|1er|1º|1°)\s*$',card.text)):
+                return result('skipped','Pending invitation or existing connection visible; no new send attempted.')
+            if normalized(lead['company']) not in normalized(card.text):
+                return result('blocked','Current company not corroborated in the profile top card; no send click attempted.')
+            step('identity_verified')
+            step('opening_invitation');self.open_invitation(card,lead)
+            modal=self.invitation_form(lead)
             self.check()
-            if any(e.is_displayed() and e.text.strip() in ('Pending','Pendiente') for e in card.find_elements(By.CSS_SELECTOR,'button,[role="button"]')):
-                return {'status':'confirmed','evidence':'Recipient identity verified; Pending visible after the single Send click.'}
-            time.sleep(.5)
-        return {'status':'uncertain','evidence':'Send clicked once; no conclusive Pending state observed. Never automatically retry.'}
+            if modal.find_elements(By.CSS_SELECTOR,'input[type="email"]'):
+                return result('blocked','Recipient email required; no send click attempted.')
+            if not any(e.is_displayed() for e in modal.find_elements(By.CSS_SELECTOR,'textarea')):
+                self.unique_button(modal,{'Add a note','Añadir una nota','Agregar una nota'}).click()
+            fields=[e for e in modal.find_elements(By.CSS_SELECTOR,'textarea') if e.is_displayed()]
+            if len(fields)!=1:raise ProviderError('Invitation note field is ambiguous.')
+            fields[0].send_keys(lead['note'])
+            if fields[0].get_attribute('value')!=lead['note']:raise ProviderError('Invitation note did not match the approved text.')
+            self.check();button=self.unique_button(modal,{'Send','Enviar','Send invitation','Enviar invitación'})
+            # Discard old network traffic before arming this verified one-recipient click.
+            d.execute(Command.GET_LOG,{'type':'performance'})
+            from .invitation_receipt import InvitationReceipt
+            self.invitation_receipt=InvitationReceipt(lead['url'],time.time())
+            clicked=True;step('send_click_started')
+            button.click();step('awaiting_confirmation')
+            outcome=WebDriverWait(d,15,poll_frequency=.3).until(lambda _:self.invitation_feedback(lead))
+            step('confirmed_'+outcome)
+            return result('confirmed','Invitation POST returned HTTP 200 for this verified recipient and send attempt.' if outcome=='network_200' else 'Recipient identity verified; Pending visible after the single Send click.')
+        except Exception as exc:
+            if clicked:
+                self.collect_invitation()
+                if self.invitation_receipt.accepted:
+                    step('confirmed_network_200_after_error')
+                    return result('confirmed','Invitation POST returned HTTP 200 despite a browser timeout/error. No second click was made.')
+            # A failure before any invitation control is clicked is known not sent.
+            status='blocked' if phase in ('session','profile_navigation','profile_identity','identity_verified') else 'uncertain'
+            if clicked:status='uncertain'
+            message=str(exc) if isinstance(exc,ProviderError) else type(exc).__name__
+            return result(status,f'Invitation stopped at {phase}: {message}. '+('No send click attempted.' if not clicked else 'Send click attempted once; no conclusive acceptance. Never automatically retry.'))
+        finally:self.invitation_receipt=None;self._invitation_audit=None
 
     def read(self,leads,limit=100):
         self.require_session();self.navigate('https://www.linkedin.com/messaging/')

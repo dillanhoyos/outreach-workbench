@@ -53,8 +53,9 @@ class Composer:
         with self.store.db() as db:
             draft=db.execute('SELECT * FROM outreach_drafts WHERE lead_id=? ORDER BY rowid DESC LIMIT 1',(lead_id,)).fetchone()
             receipt=db.execute('SELECT * FROM deliveries WHERE lead_id=?',(lead_id,)).fetchone()
+            audit=db.execute('SELECT * FROM invitation_attempts WHERE lead_id=?',(lead_id,)).fetchone()
             preview=db.execute('SELECT checked_at FROM outreach_profile_previews WHERE lead_id=?',(lead_id,)).fetchone()
-        return {'lead':lead,'draft':{**dict(draft),'result':json.loads(draft['result'])} if draft else None,'receipt':dict(receipt) if receipt else None,'previewed_at':preview[0] if preview else None,'mode':self.mode,'character_limit':200}
+        return {'network_receipt':{**dict(audit),'network':json.loads(audit['network'])} if audit else None,'lead':lead,'draft':{**dict(draft),'result':json.loads(draft['result'])} if draft else None,'receipt':dict(receipt) if receipt else None,'previewed_at':preview[0] if preview else None,'mode':self.mode,'character_limit':200}
 
     def preview(self,lead_id,browser):
         lead=self.store.get_lead(lead_id)

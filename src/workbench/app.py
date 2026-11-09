@@ -394,7 +394,7 @@ def create_app(settings=None, provider=None):
                     raise
                 store.delivery(ident,receipt['status'],receipt['evidence'])
                 results.append({'lead_id':ident,**receipt})
-                if receipt['status'] in ('blocked','uncertain'):break
+                if receipt['status'] in ('blocked','uncertain') or store.setting('linkedin_restriction'):break
             return {'results':results}
         return job('outreach',work)
 

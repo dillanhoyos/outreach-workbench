@@ -51,6 +51,9 @@ class Store:
               result TEXT NOT NULL DEFAULT '{}', created TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             ''')
+            db.execute("""CREATE TABLE IF NOT EXISTS invitation_attempts (
+              lead_id TEXT PRIMARY KEY REFERENCES deliveries(lead_id),phase TEXT NOT NULL,
+              click_attempted INTEGER NOT NULL DEFAULT 0,network TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL)""")
             crm.initialize(db)
             # An interrupted action is uncertain, never automatically retryable.
             db.execute("UPDATE deliveries SET status='uncertain' WHERE status='sending'")
@@ -129,6 +132,11 @@ class Store:
             from .crm import sync_lead
             sync_lead(db,ident)
             if status=='confirmed':db.execute('UPDATE crm_actions SET sent_at=COALESCE(sent_at,?) WHERE id=?',(now(),ident))
+
+    def invitation_audit(self,lead_id,phase,click_attempted,network):
+        with self.db() as db:
+            db.execute('INSERT INTO invitation_attempts VALUES(?,?,?,?,?) ON CONFLICT(lead_id) DO UPDATE SET phase=excluded.phase,click_attempted=excluded.click_attempted,network=excluded.network,updated_at=excluded.updated_at',
+                (lead_id,phase,int(click_attempted),json.dumps(network),now()))
 
     def reply(self, ident, lead_id, body, received, thread):
         with self.db() as db:

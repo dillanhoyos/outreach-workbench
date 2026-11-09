@@ -520,6 +520,8 @@ async function openComposer(lead){
   }
   $('compose-receipt').hidden=!composeState.receipt;
   $('compose-receipt').textContent=composeState.receipt?'Outreach result: '+composeState.receipt.status+' · '+composeState.receipt.evidence:'';
+  const audit=composeState.network_receipt;
+  if(audit){const detail=document.createElement('p');const net=audit.network;detail.textContent='Attempt stage: '+audit.phase+' · Send click: '+(audit.click_attempted?'attempted once':'not attempted')+' · Matching invitation POST 200: '+(net.accepted?'confirmed':'not observed');$('compose-receipt').append(detail);}
   if(!$('composer').open)$('composer').showModal();
   composerControls();
 }
