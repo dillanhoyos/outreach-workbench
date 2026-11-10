@@ -264,3 +264,21 @@ The recent feed shows five steps. Expand **All recorded steps** for the complete
 current-run log, including local timestamps and source links; it refreshes while
 open. The authenticated events endpoint is scoped by run ID and is not limited
 to the 80-event status snapshot. Completed runs keep a fixed elapsed duration.
+
+### Keeping the visible browser useful
+
+Hosted web searches do not navigate the private browser. The web workers use
+hosted search; the single LinkedIn worker uses the saved Selenium session shown
+in the embedded viewer. The activity lanes distinguish Coordinator, LinkedIn
+browser, Web evidence, and the two web workers.
+
+If web workers leave the browser without candidates for 20 seconds, the coordinator
+performs one visible LinkedIn people search in that same session while web research
+continues. It also searches when a web round produces no fresh candidates. This
+uses a concrete plan query with web-only `site:` syntax removed. Only primary
+search-result person links count, not mutual connections or sidebar suggestions.
+At most one fresh supplementary profile per round is inspected, avoiding a backlog
+ahead of already verified web candidates. Its company must then pass primary web
+evidence checks before qualification or CRM saving. Account challenges and rate
+limits still stop all work. This reduces idle browser time; it does not guarantee
+that LinkedIn is faster or that a search returns qualified candidates.

@@ -30,7 +30,7 @@ def test_web_company_evidence_precedes_linkedin_and_persists(tmp_path,monkeypatc
     plan=engine.prepare('S24 concession operators',3,True)
     result=engine.run(plan['id'],True)
     assert result['staged']==(0 if failure else 1)
-    assert browser.visits==(0 if failure else 1)
+    assert browser.visits==1  # a supplementary browser search still cannot bypass failed primary evidence
     assert not store.list('deliveries')
     if not failure:
         lead=store.list('leads')[0];assert lead['status']=='review'

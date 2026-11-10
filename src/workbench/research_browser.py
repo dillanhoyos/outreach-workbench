@@ -76,8 +76,17 @@ class ResearchBrowser:
 
     def search(self, query):
         page = self.snapshot('https://www.linkedin.com/search/results/people/?keywords='+quote(query,safe=''))
+        # Read only each result's primary person link, excluding mutual contacts.
+        driver=self.linkedin.browser()
+        primary=driver.execute_script('''
+          return [...document.querySelectorAll('main [role="listitem"], main li.reusable-search__result-container')]
+            .filter(card=>!card.closest('aside'))
+            .map(card=>card.querySelector('a[href*="/in/"]'))
+            .filter(a=>a && a.getClientRects().length)
+            .map(a=>({url:a.href,label:(a.innerText||a.getAttribute('aria-label')||'').slice(0,300)}));
+        ''')
         links = {}
-        for link in page['links']:
+        for link in primary:
             try: url = research_url(link['url'],'profile')
             except ValueError: continue
             links.setdefault(url,{'url':url,'label':link['label']})

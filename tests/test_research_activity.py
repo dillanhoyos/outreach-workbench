@@ -25,7 +25,7 @@ def test_complete_activity_log_and_summary_are_scoped_and_authenticated(tmp_path
         assert len(state['events'])==80
         assert state['activity']['run_id']=='run-b'
         assert state['activity']['event_count']==1 and state['activity']['visited']==1
-        assert state['activity']['lanes']['Coordinator / LinkedIn']['kind']=='visiting'
+        assert state['activity']['lanes']['LinkedIn browser']['kind']=='visiting'
         assert client.get('/api/discovery/events?run_id=unknown').json()==[]
 
 

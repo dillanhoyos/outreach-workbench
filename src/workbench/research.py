@@ -136,7 +136,14 @@ class Discovery:
             for row in rows:
                 detail=json.loads(row['detail'])
                 if row['kind'] not in ('started','finished','stopped'):
-                    lane='Web '+str(detail['worker']) if detail.get('worker') else 'Coordinator / LinkedIn'
+                    if detail.get('worker'):
+                        lane='Web '+str(detail['worker'])
+                    elif row['kind'] in ('checking_browser','browser_waiting','searching','search','visiting','profile_loaded','profile_identity_unconfirmed'):
+                        lane='LinkedIn browser'
+                    elif row['kind'].startswith('web_'):
+                        lane='Web evidence'
+                    else:
+                        lane='Coordinator'
                     lanes[lane]=row
             activity={'run_id':run_id,'started_at':rows[0]['created'],'last_event_at':rows[-1]['created'],
                 'event_count':len(rows),'saved':sum(r['kind']=='staged_for_review' for r in rows),
@@ -367,8 +374,30 @@ class Discovery:
                     {'brief':plan['prompt'],'previous_queries':tried_queries[-60:],'recent_results':recent},Plan)
                 web_plan['queries']=revised.queries
                 tried_queries.extend(revised.queries)
-            for links in self._web_pool.batches(web_plan):
-                yield self.fresh_links(links,plan,run_id)
+            searched_browser=False;fresh_found=False
+            def search_browser():
+                nonlocal searched_browser
+                searched_browser=True
+                guard()
+                # Reuse a concrete query, removing syntax meant for web engines.
+                query=next((' '.join(re.sub(r'site:\S+','',q).split()) for q in web_plan['queries']
+                    if '[' not in q and len(re.sub(r'site:\S+','',q).strip())>2),'')
+                if not query:return []
+                self.event(run_id,'searching',{'query':query,'reason':'The browser is free. Searching LinkedIn visibly while web evidence research continues.'})
+                page,observed=self.browser.search(query)
+                guard()
+                self.event(run_id,'search',{'query':query,'url':page['url'],'observed_profiles':len(observed)})
+                # One supplemental profile per round keeps ready web candidates
+                # from waiting behind a whole LinkedIn results page.
+                return [{**item,'needs_primary_evidence':True} for item in self.fresh_links(observed,plan,run_id)[:1]]
+            self.event(run_id,'browser_waiting',{'reason':'Waiting for web candidates. If the browser stays idle for 20 seconds, it will search LinkedIn in this same session.'})
+            for links in self._web_pool.batches(web_plan,on_idle=search_browser):
+                fresh=self.fresh_links(links,plan,run_id)
+                fresh_found=fresh_found or bool(fresh)
+                yield fresh
+                if not remaining():return
+            if not fresh_found and not searched_browser:
+                yield self.fresh_links(search_browser(),plan,run_id)
                 if not remaining():return
 
 
@@ -441,7 +470,29 @@ class Discovery:
                         self.event(run_id,'profile_identity_unconfirmed',{'url':url,'reason':str(exc)})
                         self.store.setting('research_report',report)
                         continue
+                    self.event(run_id,'profile_loaded',{'url':url,'reason':'Profile captured from the private browser. Checking evidence before saving.'})
                     self.remember(url,'reserved',{'profile':profile},run_id,plan['prompt'])
+                    if link.get('needs_primary_evidence'):
+                        from .research_web import discover
+                        self.event(run_id,'web_fallback',{'url':url,'reason':'LinkedIn search found this profile. Verifying primary company evidence before qualification.'})
+                        targeted={**plan,'limit':1,'prompt':plan['prompt']+' Research ONLY this profile and current company: '+url+' '+profile.get('headline','')+'. Return this exact profile URL.',
+                            'queries':[profile['title']+' '+profile.get('headline','')]}
+                        matches=discover(self,targeted,run_id,guard)
+                        guard()
+                        match=next((m for m in matches if profile_key(m['url'])==profile_key(url)),None)
+                        if match:
+                            link={**link,'web_company':match['web_company']}
+                        else:
+                            reason='No verified primary company evidence for this LinkedIn search result. Not saved.'
+                            evidence={'profile':profile,'assessment':{'reason':reason,'needs_web_evidence':True}}
+                            with self.store.db() as db:
+                                db.execute('UPDATE research_visits SET state=?,evidence=? WHERE profile_key=?',
+                                    ('insufficient_evidence',json.dumps(evidence),profile_key(url)))
+                            self.remember(url,'insufficient_evidence',evidence,run_id,plan['prompt'])
+                            report['skipped']+=1
+                            self.event(run_id,'insufficient_evidence',{'url':url,'reason':reason})
+                            self.store.setting('research_report',report)
+                            continue
                     companies=profile['companies']
                     direct=[item for item in companies if fold(item['label']) and fold(item['label']) in fold(profile.get('headline',''))]
                     if link.get('web_company'):

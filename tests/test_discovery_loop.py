@@ -31,6 +31,7 @@ def test_parallel_web_serial_linkedin_dedupe_and_target(tmp_path,monkeypatch):
 
 def test_empty_results_continue_past_three_rounds_until_stopped(tmp_path,monkeypatch):
     store,browser,engine,plan=setup(tmp_path);rounds=[]
+    browser.search=lambda query:({'url':'https://www.linkedin.com/search/results/people/'},[])
     def empty(*a,**kw):
         rounds.append(1)
         if len(rounds)>=8:engine.stop.set()
@@ -200,3 +201,36 @@ def test_profile_404_is_skipped_before_waiting_for_missing_main():
     with pytest.raises(ProfileIdentityError) as error:
         ResearchBrowser(linkedin).profile(PROFILE)
     assert error.value.observed_url=='https://www.linkedin.com/404/'
+
+
+def test_idle_web_uses_same_serial_browser_without_waiting_for_workers(tmp_path,monkeypatch):
+    from workbench import research_pool
+    store,browser,engine,plan=setup(tmp_path)
+    plan['limit']=1;plan['queries']=['site:ycombinator.com/companies founder S24']
+    store.setting('research_plan',plan)
+    searched=threading.Event();calls=[];owner=threading.get_ident()
+    def web(worker,p,*a,**kw):
+        if 'Research ONLY' in p['prompt']:
+            return [{'url':PROFILE,'label':'Verified','web_company':browser.company(COMPANY)}]
+        assert worker.browser is None
+        assert searched.wait(3)
+        return []
+    def search(query):
+        calls.append((query,threading.get_ident()))
+        searched.set()
+        return {'url':'https://www.linkedin.com/search/results/people/'},[{'url':PROFILE,'label':'Observed founder'}]
+    browser.search=search
+    monkeypatch.setattr(research_pool,'BROWSER_IDLE_SECONDS',0)
+    monkeypatch.setattr(research_web,'discover',web)
+    result=engine.run(plan['id'],True)
+    assert calls==[('founder S24',owner)]
+    assert result['linkedin_searches']==1 and result['staged']==1
+
+
+def test_empty_web_shortlist_triggers_linkedin_search(tmp_path,monkeypatch):
+    store,browser,engine,plan=setup(tmp_path)
+    plan['limit']=1;store.setting('research_plan',plan)
+    monkeypatch.setattr(research_web,'discover',lambda worker,p,*a,**kw:
+        [{'url':PROFILE,'label':'Verified','web_company':browser.company(COMPANY)}] if 'Research ONLY' in p['prompt'] else [])
+    result=engine.run(plan['id'],True)
+    assert result['linkedin_searches']==1 and result['staged']==1

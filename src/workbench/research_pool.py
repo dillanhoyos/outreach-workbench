@@ -2,6 +2,9 @@
 import copy
 import threading
 import queue
+import time
+
+BROWSER_IDLE_SECONDS=20
 from concurrent.futures import ThreadPoolExecutor, Future, wait, FIRST_COMPLETED
 from .errors import ProviderError
 
@@ -58,18 +61,25 @@ class WebPool:
                 self.engine._web_failure=exc if isinstance(exc,ProviderError) else ProviderError('Web worker failed. Research stopped without retry.')
                 self.engine.stop.set()
             raise
-    def batches(self,plan):
+    def batches(self,plan,on_idle=None):
         queries=plan['queries']
         self.futures=[self.executor.submit(self.worker,i+1,{**plan,'queries':queries[i::2] or queries,
             'prompt':plan['prompt']+f'\nSearch lane {i+1}: '+('use the most direct official directory matches.' if i==0 else 'seek alternative qualifying companies and less obvious matches.')}) for i in range(2)]
         pending=set(self.futures)
+        idle_since=time.monotonic();idle_used=False
         while pending or not self.ready.empty():
             self.guard()
             try:
                 yield self.ready.get_nowait()
+                idle_since=time.monotonic()
                 continue
             except queue.Empty:
                 pass
+            if pending and on_idle and not idle_used and time.monotonic()-idle_since>=BROWSER_IDLE_SECONDS:
+                idle_used=True
+                yield on_idle()
+                idle_since=time.monotonic()
+                continue
             done,pending=wait(pending,timeout=.3,return_when=FIRST_COMPLETED)
             for future in done:
                 self.guard()
