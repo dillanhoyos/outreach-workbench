@@ -47,9 +47,7 @@ messages only for matched CRM profiles. Time limits and identity review cases
 are reported separately. An ambiguous send is permanently reserved until a human
 reconciles it; there is deliberately no automatic resend endpoint.
 
-If a fatal error interrupts reading before the batch returns, that batch is not
-imported. Resolve the error before rerunning; successfully imported replies are
-deduplicated. See IMPLEMENTATION.md for remaining scope limits.
+Verified replies persist incrementally even when a later conversation fails. Resolve errors before rerunning; message IDs prevent duplicate imports. See IMPLEMENTATION.md for remaining scope limits.
 
 ## Embedded browser onboarding
 
@@ -122,3 +120,11 @@ that a particular Cloud project's credentials or production Google consent work.
 For that, configure [Google setup](GOOGLE_SHEETS.md), connect your own account,
 select a small test spreadsheet, preview and confirm import, then check CRM.
 No source spreadsheet is modified by import.
+
+
+Replies reader checks: `.venv/bin/pytest -q tests/test_reader.py tests/test_linkedin.py`.
+The workspace UI smoke test now also reads simulated incoming replies, displays
+them in contact details, filters replied contacts, and repeats the reader. Positive
+reply ingestion uses fictional messages; a live scan may legitimately find zero
+messages from known CRM contacts. Check the report rather than equating a finished
+job with imported replies. The live launcher test uses `scripts/run-replies.sh`.

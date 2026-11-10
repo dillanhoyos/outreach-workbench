@@ -159,3 +159,5 @@ in the last step. Open `.env` locally and copy the new `WORKBENCH_TOKEN` value i
 the app. Do not share the file or token. No volume deletion is needed.
 
 Google Sheets: [one-time OAuth setup and import walkthrough](docs/GOOGLE_SHEETS.md).
+
+Replies: use **CRM → Replies reader**. See [reader workflow and cron setup](docs/IMPLEMENTATION.md#replies-reader-workflow-and-cron).

@@ -14,7 +14,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.command import Command
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException, InvalidSessionIdException, StaleElementReferenceException
+from selenium.common.exceptions import TimeoutException, InvalidSessionIdException, StaleElementReferenceException, NoSuchElementException
 from .store import profile_key
 from .errors import ProviderError
 
@@ -45,6 +45,12 @@ def incoming_rows(messages, lead, participant_url, thread):
         rows.append({'ident':hashlib.sha256((thread+'\n'+message['id']).encode()).hexdigest(),
             'lead_id':lead['id'],'body':message['text'],'received':message_time(message['id']),'thread':thread})
     return rows
+
+
+def fresh_conversation_cards(cards,seen):
+    # Some current inbox layouts use a clickable div, not an anchor with href.
+    # Unnamed loading/ad placeholders must not count as a checked conversation.
+    return [c for c in cards if c.get('id') and c.get('name') and (c.get('href') or c['id']) not in seen]
 
 
 class LinkedInBrowser:
@@ -306,53 +312,91 @@ class LinkedInBrowser:
             return result(status,f'Invitation stopped at {phase}: {message}. '+('No send click attempted.' if not clicked else 'Send click attempted once; no conclusive acceptance. Never automatically retry.'))
         finally:self.invitation_receipt=None;self._invitation_audit=None
 
-    def read(self,leads,limit=100):
-        self.require_session();self.navigate('https://www.linkedin.com/messaging/')
-        d=self.browser();known={profile_key(x['url']):x for x in leads}
-        seen=set();rows=[];cases=[];checked=0;stable=0
-        deadline=time.monotonic()+600
-        WebDriverWait(d,12).until(lambda d:d.find_elements(By.CSS_SELECTOR,'.msg-conversation-listitem'))
-        while checked<limit and time.monotonic()<deadline:
-            cards=d.execute_script("return [...document.querySelectorAll('.msg-conversation-listitem')].map(e=>({id:e.id,name:e.querySelector('h3')?.innerText?.trim()}))")
-            fresh=[c for c in cards if c['id'] and c['id'] not in seen]
-            for card in fresh:
-                if checked>=limit or time.monotonic()>=deadline:break
-                seen.add(card['id']);checked+=1
-                try:
-                    item=d.find_element(By.ID,card['id'])
-                    if item.find_element(By.CSS_SELECTOR,'h3').text.strip()!=card['name']:raise ProviderError('Conversation changed while opening.')
-                    item.find_element(By.CSS_SELECTOR,'.msg-conversation-listitem__link').click()
-                    header=WebDriverWait(d,8).until(lambda d:d.find_element(By.CSS_SELECTOR,'.msg-thread__link-to-profile'))
-                    self.check()
-                    if header.find_element(By.CSS_SELECTOR,'h2').text.strip()!=card['name']:raise ProviderError('Conversation header mismatch.')
-                    thread=d.current_url
-                    if urlsplit(thread).path.startswith('/messaging/thread/') is False:raise ProviderError('Conversation URL not verified.')
-                    internal=header.get_attribute('href')
-                    # Resolve the exact participant in a temporary tab. Never match by name alone.
-                    parent=d.current_window_handle
-                    d.switch_to.new_window('tab')
+    def read(self,leads,limit=100,on_reply=None,on_progress=None,stop=None):
+        """Bounded, read-only scan. Commit verified replies as each thread completes."""
+        known={profile_key(x['url']):x for x in leads}
+        seen=set();rows=[];cases=[];checked=matched=unmatched=0;stable=0
+        started=time.monotonic();deadline=started+600;reason='inbox_exhausted'
+        def progress(phase='reading'):
+            report={'phase':phase,'unique_conversations_checked':checked,'matched_contacts':matched,
+                'unmatched_conversations':unmatched,'incoming_messages_observed':len(rows),
+                'review_cases':cases,'limit':limit,'seconds':round(time.monotonic()-started,1),
+                'reason':reason if phase!='reading' else '',
+                'scope':'Up to the requested recent conversations; visible incoming messages from known CRM profiles only.'}
+            if on_progress:on_progress(report)
+            else:self.store.setting('last_reader_report',report)
+        progress()
+        try:
+            self.require_session();self.navigate('https://www.linkedin.com/messaging/')
+            d=self.browser()
+            try:WebDriverWait(d,12).until(lambda d:d.find_elements(By.CSS_SELECTOR,'.msg-conversation-listitem'))
+            except TimeoutException:raise ProviderError('No conversation list found. Open Messaging in the private browser; sign in or review the inbox layout.') from None
+            while checked<limit and time.monotonic()<deadline and not (stop and stop.is_set()):
+                cards=d.execute_script("return [...document.querySelectorAll('.msg-conversation-listitem')].map(e=>({id:e.id,name:e.querySelector('h3')?.innerText?.trim(),href:e.querySelector('.msg-conversation-listitem__link')?.href}))")
+                fresh=fresh_conversation_cards(cards,seen)
+                for card in fresh:
+                    if checked>=limit or time.monotonic()>=deadline or (stop and stop.is_set()):break
+                    seen.add(card.get('href') or card['id']);checked+=1
+                    stage='opening conversation'
                     try:
-                        self.navigate(internal)
-                        WebDriverWait(d,10).until(lambda d:d.find_elements(By.CSS_SELECTOR,'main h1'))
-                        links=d.find_elements(By.CSS_SELECTOR,'a[href*="/overlay/contact-info/"]')
-                        keys={profile_key(e.get_attribute('href').split('/overlay/contact-info/')[0]) for e in links}
-                        if not keys:keys={profile_key(d.current_url)}
-                        matches=keys & known.keys()
-                        if len(matches)!=1:continue
-                        lead=known[next(iter(matches))]
-                    finally:
-                        d.close();d.switch_to.window(parent)
-                    messages=d.execute_script('''let sender=null;return [...document.querySelectorAll('.msg-thread .msg-s-event-listitem')].map(e=>{const a=e.querySelector('.msg-s-message-group__meta a[href*="/in/"]')||e.querySelector('a.msg-s-event-listitem__link');if(a)sender=a.href;return {id:e.getAttribute('data-event-urn'),sender,text:e.querySelector('.msg-s-event-listitem__body')?.innerText||''};});''')
-                    rows.extend(incoming_rows(messages,lead,internal,thread))
-                except ProviderError as exc:
-                    if self.store.setting('linkedin_restriction') or 'sign-in' in str(exc):raise
-                    cases.append({'conversation':card['id'],'reason':str(exc)})
-                except Exception:
-                    cases.append({'conversation':card['id'],'reason':'Layout or identity could not be verified.'})
-            moved=d.execute_script("const e=document.querySelector('.msg-conversations-container__conversations-list');if(!e)return false;const p=e.scrollTop;e.scrollTop+=e.clientHeight*.85;return e.scrollTop!==p")
-            stable=stable+1 if not fresh and not moved else 0
-            if stable>=3:break
-            time.sleep(.6)
-        self.store.setting('last_reader_report',{'unique_conversations_checked':checked,'incoming_messages_observed':len(rows),
-            'review_cases':cases,'limit':limit,'scope':'Current inbox, currently loaded messages only; no historical completeness claim.'})
-        return rows
+                        item=d.find_element(By.ID,card['id'])
+                        if item.find_element(By.CSS_SELECTOR,'h3').text.strip()!=card['name']:raise ProviderError('Conversation changed while opening.')
+                        item.find_element(By.CSS_SELECTOR,'.msg-conversation-listitem__link').click()
+                        def verified_header(driver):
+                            headers=driver.find_elements(By.CSS_SELECTOR,'.msg-thread__link-to-profile')
+                            return next((h for h in headers if h.find_element(By.CSS_SELECTOR,'h2').text.strip()==card['name']),False)
+                        stage='verifying conversation header'
+                        header=WebDriverWait(d,8).until(verified_header)
+                        self.check();thread=d.current_url
+                        if not urlsplit(thread).path.startswith('/messaging/thread/'):raise ProviderError('Conversation URL not verified.')
+                        internal=header.get_attribute('href');key=profile_key(internal)
+                        lead=known.get(key)
+                        if lead is None:
+                            parent=d.current_window_handle
+                            d.switch_to.new_window('tab')
+                            try:
+                                stage='resolving participant profile'
+                                self.navigate(internal)
+                                # Canonical URL redirects identify the participant without
+                                # depending on profile headings or the profile's main layout.
+                                def identity_keys(driver):
+                                    resolved=profile_key(driver.current_url)
+                                    if resolved!=key:return {resolved}
+                                    links=driver.find_elements(By.CSS_SELECTOR,'a[href*="/overlay/contact-info/"]')
+                                    return {profile_key(e.get_attribute('href').split('/overlay/contact-info/')[0]) for e in links} or False
+                                keys=WebDriverWait(d,10).until(identity_keys)
+                                matches=keys & known.keys()
+                                if len(matches)==1:lead=known[next(iter(matches))]
+                            finally:
+                                d.close();d.switch_to.window(parent)
+                        if lead is None:unmatched+=1;continue
+                        matched+=1
+                        # Re-check the conversation after returning from the participant profile.
+                        if d.current_url!=thread:raise ProviderError('Conversation changed while resolving participant.')
+                        if not verified_header(d):raise ProviderError('Conversation header changed.')
+                        messages=d.execute_script('''let sender=null;return [...document.querySelectorAll('.msg-thread .msg-s-event-listitem')].map(e=>{const a=e.querySelector('.msg-s-message-group__meta a[href*="/in/"]')||e.querySelector('a.msg-s-event-listitem__link');if(a)sender=a.href;return {id:e.getAttribute('data-event-urn'),sender,text:e.querySelector('.msg-s-event-listitem__body')?.innerText||''};});''')
+                        incoming=incoming_rows(messages,lead,internal,thread)
+                        for row in incoming:
+                            if on_reply:on_reply(row)
+                            rows.append(row)
+                    except ProviderError as exc:
+                        if self.store.setting('linkedin_restriction') or 'sign-in' in str(exc):raise
+                        cases.append({'conversation':card['id'],'reason':str(exc)})
+                    except (TimeoutException,StaleElementReferenceException,NoSuchElementException):
+                        cases.append({'conversation':card['id'],'reason':'Could not finish '+stage+'. This conversation was not imported.'})
+                    except Exception as exc:
+                        raise ProviderError('Reader stopped on '+type(exc).__name__+'. Verified replies already saved; inspect the private browser.') from None
+                    finally:progress()
+                moved=d.execute_script("const e=document.querySelector('.msg-conversations-container__conversations-list');if(!e)return false;const p=e.scrollTop;e.scrollTop+=e.clientHeight*.85;return e.scrollTop!==p")
+                stable=stable+1 if not fresh and not moved else 0
+                if stable>=3:break
+                time.sleep(.6)
+            reason='stopped_by_user' if stop and stop.is_set() else 'time_limit' if time.monotonic()>=deadline else 'conversation_limit' if checked>=limit else 'inbox_exhausted'
+            if checked==0 and not (stop and stop.is_set()):raise ProviderError('Conversation list was present but no readable conversations were checked. Review the inbox layout.')
+            if checked and len(cases)==checked:raise ProviderError('Every conversation failed verification. Review the reported cases before scheduling another scan.')
+            progress('completed')
+            return rows
+        except Exception as exc:
+            reason=str(exc) if isinstance(exc,ProviderError) else 'Reader failed: '+type(exc).__name__
+            progress('failed')
+            raise

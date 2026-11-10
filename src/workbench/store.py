@@ -180,7 +180,9 @@ class Store:
     def reply(self, ident, lead_id, body, received, thread):
         with self.db() as db:
             inserted=db.execute('INSERT OR IGNORE INTO replies VALUES(?,?,?,?,?,?)',(ident,lead_id,body,received,thread,now())).rowcount
-            if inserted:db.execute("UPDATE leads SET status='replied' WHERE id=?",(lead_id,))
+            if inserted:
+                db.execute("UPDATE leads SET status='replied' WHERE id=?",(lead_id,))
+                db.execute("INSERT INTO workspace_changes(lead_id,name,kind,after_state,detail,created) VALUES(?,(SELECT name FROM leads WHERE id=?),'reply','received','Incoming reply saved to CRM',?)",(lead_id,lead_id,now()))
             from .crm import sync_lead
             sync_lead(db,lead_id)
         return bool(inserted)

@@ -8,5 +8,5 @@ class LiveProvider:
     def send(self, lead):
         return self.linkedin.send(lead)
 
-    def read(self, leads, limit=100):
-        return self.linkedin.read(leads, limit)
+    def read(self, leads, limit=100, **kwargs):
+        return self.linkedin.read(leads, limit, **kwargs)

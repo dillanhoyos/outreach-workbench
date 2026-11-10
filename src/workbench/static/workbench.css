@@ -318,3 +318,10 @@ button:not(:disabled):active{transform:translateY(1px)}
  #outreach>.section-head,#outreach>.crm-overview,#outreach>.crm-filters,#outreach>.crm-table-meta,#outreach>.crm-report,#outreach>.crm-footnote{flex-shrink:0}
  #crm-grid-scroll{flex:1;min-height:180px;max-height:none}
 }
+
+#reply-reader{padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface);flex-shrink:0}
+#reply-reader summary{display:flex;align-items:center;gap:10px}
+#reply-reader p{font-size:12px;margin:10px 0}
+#reply-reader .connection-actions label{margin:0}
+#reader-limit{width:85px}
+#reader-cases{max-height:160px;overflow:auto}

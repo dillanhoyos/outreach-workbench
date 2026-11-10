@@ -118,6 +118,7 @@ def create_app(settings=None, provider=None):
             provider=LiveProvider(settings,store)
     executor=ThreadPoolExecutor(max_workers=1)
     busy=threading.Lock()
+    reader_stop=threading.Event()
     app.state.store=store
     jev_connection = JevConnection(settings)
     codex_connection = CodexAuth(settings.data_dir)
@@ -134,6 +135,7 @@ def create_app(settings=None, provider=None):
         try:yield
         finally:
             research.stop.set()
+            reader_stop.set()
             executor.shutdown(wait=True,cancel_futures=True)
             codex_connection.close()
             if hasattr(provider,'linkedin'):provider.linkedin.close_transport()
@@ -469,9 +471,15 @@ def create_app(settings=None, provider=None):
     @app.post('/api/replies/read',dependencies=[Depends(auth)])
     def read(body:ReadRequest):
         def work():
-            rows=provider.read(store.list('leads'),body.limit)
-            return {'observed':len(rows),'added':sum(store.reply(**r) for r in rows)}
+            from .reader import run_reader
+            reader_stop.clear()
+            return run_reader(store,provider,body.limit,reader_stop)
         return job('reader',work)
+
+    @app.post('/api/replies/stop',dependencies=[Depends(auth)])
+    def stop_reader():
+        reader_stop.set()
+        return {'message':'Stop requested. Already verified replies stay saved.'}
 
     def linkedin():
         if settings.mode!='live' or not hasattr(provider,'linkedin'):

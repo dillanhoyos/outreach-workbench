@@ -131,6 +131,17 @@ async def main():
   await page.set_viewport_size({'width':390,'height':844});await page.screenshot(path='/tmp/outreach-composer-mobile.png',full_page=True)
   assert await page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
   assert await page.locator('nav a[href="#inbox"]').count()==0
+  await page.click('nav a[href="#outreach"]');await page.locator('#reply-reader').evaluate('(e)=>e.open=true')
+  await page.fill('#reader-limit','3');await page.click('#reader-start')
+  await page.wait_for_function("document.querySelector('#reader-badge').textContent==='Scan complete'")
+  await page.select_option('#crm-filter','replied')
+  assert 'Demo Person 1' in await page.locator('#leads').inner_text()
+  await page.locator('#leads .contact-name').first.click()
+  assert 'Fictional reply:' in await page.locator('#crm-detail-content').inner_text()
+  await page.keyboard.press('Escape')
+  await page.click('#reader-start')
+  await page.wait_for_function("document.querySelector('#reader-status').textContent.includes('0 new replies')")
+  assert 'already saved' in await page.locator('#reader-status').inner_text()
   await page.evaluate('''() => {
     workspace.mode='live';workspace.busy=false;workspace.discovery.ready=true;
     researchState={plan:{id:'state-test',created:'2026-01-01',prompt:'Founders',limit:3,max_minutes:15,max_profiles:0},active:false,events:[]};

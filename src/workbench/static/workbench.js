@@ -1,6 +1,7 @@
 'use strict';
 let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false, researchRestored = false, researchSeenJobId = null, briefSubmitting = false, briefRevision = null, briefJobId = null, decisionRevision = null;
 const $ = id => document.getElementById(id);
+let latestReaderJob=null,readerSubmitting=false;
 let researchViewOverride=null,researchViewKey=null,researchLatestJob=null;
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body, method) {
@@ -52,6 +53,7 @@ function controls() {
   $('login').disabled = !idle || workspace.mode !== 'live' || !browserState?.available || Boolean(workspace.linkedin_restriction);
   $('reset-browser').disabled = !idle || workspace.mode !== 'live';
   for (const id of ['codex-login', 'codex-key-save', 'codex-check', 'codex-logout', 'codex-cancel', 'jev-save', 'jev-check', 'jev-disconnect', 'google-login', 'google-disconnect', 'google-create', 'google-select']) $(id).disabled = !idle || connectionBusy;
+  renderReader();
   renderResearchScreen();
   if (idle && !connectionBusy && connections) {
     $('codex-login').disabled = !connections.codex.available || connections.codex.signed_in || Boolean(connections.codex.pending);
@@ -74,6 +76,7 @@ async function refresh() {
     const [status, leads, history, jobs, authState, discoveryState, reports] = await Promise.all(['status', 'records/leads', 'crm/history', 'records/jobs', 'connections', 'discovery/state','crm/report'].map(p => api(p)));
     connections = authState; researchState = discoveryState;
     workspace = status;
+    latestReaderJob=jobs.filter(j=>j.kind==='reader').sort((a,b)=>b.created.localeCompare(a.created))[0] || null;
     $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
     $('status').textContent = (status.busy ? 'A job is running. ' : 'Ready. ') + 'Daily action limit: ' + status.daily_limit + ' (UTC).';
     $('account-name').textContent = 'Account: see LinkedIn in the browser';
@@ -528,7 +531,7 @@ $('clear-search-history').onclick=()=>run(async()=>{
 });
 
 let crmRecords=[],crmReports=[],crmSort={key:"name",direction:1};
-const crmFilterLabels={all:'All profiles',qualified:'Qualified',not_applicable:'Visited · not applicable',missing_evidence:'Missing evidence',other:'Other / interrupted',available:'Available for outreach',sent:'Sent',blocked:'Blocked',uncertain:'Uncertain'};
+const crmFilterLabels={all:'All profiles',qualified:'Qualified',not_applicable:'Visited · not applicable',missing_evidence:'Missing evidence',other:'Other / interrupted',available:'Available for outreach',sent:'Sent',replied:'Replied',blocked:'Blocked',uncertain:'Uncertain'};
 function crmCategory(lead) {
   if(lead.qualification) return ({qualified:'qualified',not_applicable:'not_applicable',missing_evidence:'missing_evidence'})[lead.qualification] || 'other';
   if(lead.status==='not_applicable')return 'not_applicable';
@@ -546,7 +549,7 @@ function renderCrm(leads,status) {
   if(campaignSelect.value)leads=leads.filter(l=>(l.assessments || []).some(a=>a.campaign_id===campaignSelect.value)).map(l=>{const a=l.assessments.find(a=>a.campaign_id===campaignSelect.value);return {...l,qualification:a.qualification,campaign_id:a.campaign_id,campaign:a.campaign_name,reason:a.explanation};});
   const counts={all:leads.length,qualified:0,not_applicable:0,missing_evidence:0,other:0};
   for(const lead of leads)counts[crmCategory(lead)]++;
-  for(const k of ['available','sent','blocked','uncertain'])counts[k]=leads.filter(l=>crmMatches(l,k)).length;
+  for(const k of ['available','sent','replied','blocked','uncertain'])counts[k]=leads.filter(l=>crmMatches(l,k)).length;
   for(const option of $('crm-filter').options)option.textContent=crmFilterLabels[option.value]+' ('+counts[option.value]+')';
   const query=$('crm-search').value.trim().toLocaleLowerCase();
   const visible=(selection==='all'?leads:leads.filter(lead=>crmMatches(lead,selection)))
@@ -754,6 +757,7 @@ $('return-composer').onclick=()=>run(()=>openComposer(composeLead));
 function crmMatches(lead,filter){
   if(filter==='available')return Boolean(lead.outreach_available);
   if(filter==='sent')return lead.status==='confirmed';
+  if(filter==='replied')return Boolean(lead.last_reply_at) || lead.status==='replied';
   if(['blocked','uncertain'].includes(filter))return lead.status===filter;
   return crmCategory(lead)===filter;
 }
@@ -949,3 +953,22 @@ for(const id of ['discovery-prompt','discovery-limit','discovery-minutes','disco
   try{const saved=sessionStorage.getItem('workbench-form-'+id);if(saved!==null)$(id).value=saved;}catch(_){}
   $(id).addEventListener('input',()=>{try{sessionStorage.setItem('workbench-form-'+id,$(id).value);}catch(_){}});
 }
+
+function renderReader(){
+  const report=workspace?.reader_report,running=latestReaderJob?.status==='running';
+  $('reader-start').disabled=!workspace || workspace.busy || readerSubmitting;
+  $('reader-limit').disabled=!workspace || workspace.busy || readerSubmitting;
+  $('reader-stop').disabled=!running;
+  $('reader-badge').textContent=running?'Reading…':latestReaderJob?.status==='failed'?'Needs attention':latestReaderJob?.status==='interrupted'?'Interrupted':report?.reason==='stopped_by_user'?'Stopped':report?.reason==='time_limit'?'Time limit reached':report?.phase==='completed'?'Scan complete':'Not run yet';
+  if(!report){if(!readerSubmitting)$('reader-status').textContent='No scan yet. Start a manual scan or use the scheduled runner.';return;}
+  $('reader-status').textContent=(report.unique_conversations_checked || 0)+' conversations checked · '+(report.matched_contacts || 0)+' matched · '+(report.added || 0)+' new replies · '+(report.duplicates || 0)+' already saved · '+(report.unmatched_conversations || 0)+' outside CRM.'+(report.reason?' '+report.reason.replaceAll('_',' ')+'.':'')+(report.ended_at?' Last finished: '+new Date(report.ended_at).toLocaleString()+'.':'');
+  $('reader-cases').replaceChildren();
+  if(report.review_cases?.length){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent=report.review_cases.length+' conversations need review';details.append(summary);for(const item of report.review_cases){const p=document.createElement('p');p.textContent=item.reason;details.append(p);}$('reader-cases').append(details);}
+}
+$('reader-start').onclick=()=>run(async()=>{
+  const limit=Number($('reader-limit').value);if(!Number.isInteger(limit) || limit<1 || limit>100)throw Error('Choose 1 to 100 conversations.');
+  readerSubmitting=true;crmBrowserVisible=true;showView('outreach');controls();
+  $('reader-status').textContent='Starting the replies reader…';
+  try{await api('replies/read',{limit});await refresh();}finally{readerSubmitting=false;controls();}
+});
+$('reader-stop').onclick=()=>run(async()=>{const result=await api('replies/stop',{});$('reader-status').textContent=result.message;});

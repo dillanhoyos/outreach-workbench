@@ -10,6 +10,7 @@ def test_start_research_explains_each_gate():
     controls=script[script.index('function controls()'):script.index('async function refresh()')]
     code='''const assert=require('node:assert/strict');
 const nodes={}; const $=id=>nodes[id]??=( {value:'',checked:false,hidden:false,disabled:false,textContent:''} );
+function renderResearchScreen(){} function renderReader(){}
 let workspace={mode:'live',busy:false,account:null,discovery:{ready:false,reason:'Sign in to Codex.'}};
 let researchState={plan:{prompt:'Find founders',limit:3}};
 let browserState=null,browserChecking=false,connectionBusy=false,connections=null,researchSubmitting=false,briefSubmitting=false;
@@ -20,14 +21,14 @@ assert.match($('research-start-help').textContent,/Sign in to Codex/);
 assert.equal($('research-start-browser').hidden,false);
 workspace.account={name:'Fixture'};workspace.discovery.ready=true;
 $('discovery-prompt').value='';controls();
-assert.equal($('research-start').disabled,false);assert.match($('research-start-help').textContent,/edited form/);
+assert.equal($('research-start').disabled,true);assert.match($('research-start-help').textContent,/updated plan/);
 assert.equal($('research-use-plan').hidden,false);
 $('discovery-prompt').value='Find founders';$('research-history').checked=false;controls();
 assert.match($('research-start-help').textContent,/checkbox/);
 $('research-history').checked=true;controls();assert.equal($('research-start').disabled,false);
-$('discovery-minutes').value='30';controls();assert.match($('research-start-help').textContent,/edited form/);assert.match($('research-adjust-time').textContent,/30 min/);
+$('discovery-minutes').value='30';controls();assert.match($('research-start-help').textContent,/updated plan/);assert.match($('research-adjust-time').textContent,/30 min/);
 $('discovery-minutes').value='15';
-workspace.busy=true;controls();assert.equal($('research-adjust-time').disabled,true);assert.match($('research-start-help').textContent,/current job/);assert.equal($('research-start').disabled,false);
+workspace.busy=true;controls();assert.equal($('research-adjust-time').disabled,true);assert.match($('research-start-help').textContent,/current job/);assert.equal($('research-start').disabled,true);
 researchSubmitting=true;controls();assert.equal($('research-start').disabled,true);researchSubmitting=false;
 workspace=null;controls();assert.match($('research-start-help').textContent,/Connect your workspace/);
 '''
@@ -38,7 +39,7 @@ def test_modes_keep_browser_mounted_and_sidebar_preserves_work():
     script=Path('src/workbench/static/workbench.js').read_text()
     navigation=script[script.index("let composerRestored="):script.index('function renderWorkspace()')]
     code="""const assert=require('node:assert/strict');
-const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft',append(){},prepend(){},classList:{add(){}}};
+const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft',append(){},prepend(){},classList:{add(){},toggle(){}}};
 let workspace=null;
 const window={location:{hash:''}};
 const history={replaceState:(_,__,hash)=>window.location.hash=hash};
@@ -53,6 +54,8 @@ assert.equal($('connections').hidden,false);assert.equal($('discovery').hidden,t
 showView('compose');assert.equal($('outreach-start').hidden,false);assert.equal($('discovery').hidden,true);
 composeLead={id:'fixture'};showView('compose');assert.equal($('composer').hidden,false);
 showView('activity');assert.equal($('composer').hidden,true);assert.equal($('browser-section').hidden,false);
+showView('outreach');assert.equal($('browser-section').hidden,true);
+crmBrowserVisible=true;showView('outreach');assert.equal($('browser-section').hidden,false);
 showView('discovery');assert.equal($('discovery').value,'saved draft');
 assert.equal($('composer').hidden,true);
 """

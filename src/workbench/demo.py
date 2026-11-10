@@ -13,7 +13,7 @@ class DemoProvider:
     def send(self,lead):
         return {'status':'simulated','evidence':'Demo only. No invitation was sent.'}
 
-    def read(self,leads,limit=100):
+    def read(self,leads,limit=100,**kwargs):
         eligible=[x for x in leads if x['status']=='simulated'][:limit]
         return [dict(ident=hashlib.sha256(('demo-reply:'+x['id']).encode()).hexdigest(),
                      lead_id=x['id'],body='Fictional reply: Please share more information.',
