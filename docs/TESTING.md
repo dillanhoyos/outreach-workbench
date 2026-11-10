@@ -107,3 +107,18 @@ simulated sending, persistent history, filtering, refresh recovery, desktop and
 mobile layout, header navigation without a sidebar, filtered select-all, editable batch notes,
 batch sending and preserving the browser frame across modes and utility panels.
 It never targets the live installation or sends real invitations.
+
+Google Sheets import checks:
+
+```sh
+.venv/bin/pytest -q tests/test_google_connection.py tests/test_sheets_import.py
+.venv/bin/python scripts/sheets_ui_smoke.py
+```
+
+The browser check uses an isolated database and simulated Google consent, Picker
+SDK and Sheets responses. It exercises real app routes, mapping, preview, local
+commit and CRM display, including duplicate/history exclusions. It does not prove
+that a particular Cloud project's credentials or production Google consent work.
+For that, configure [Google setup](GOOGLE_SHEETS.md), connect your own account,
+select a small test spreadsheet, preview and confirm import, then check CRM.
+No source spreadsheet is modified by import.

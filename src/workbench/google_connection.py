@@ -129,3 +129,16 @@ class GoogleConnection:
             return {'message':'Spreadsheet access verified. Sync still protects tabs owned by other installations.'}
         except ProviderError:raise
         except Exception:raise ProviderError('Could not verify spreadsheet access. Use a file previously created by this app and Google account, or create a new CRM.') from None
+
+    def picker_config(self):
+        from google.auth.transport.requests import Request
+        key=os.getenv('GOOGLE_PICKER_API_KEY','')
+        project=os.getenv('GOOGLE_CLOUD_PROJECT_NUMBER','')
+        if not key or not re.fullmatch(r'\d+',project):
+            raise ProviderError('Set GOOGLE_PICKER_API_KEY and GOOGLE_CLOUD_PROJECT_NUMBER. See Google setup in Connections.')
+        creds=self.credentials()
+        try:
+            if not creds.valid:creds.refresh(Request())
+            self.persist(creds)
+            return {'access_token':creds.token,'api_key':key,'app_id':project}
+        except Exception:raise ProviderError('Google session expired. Disconnect and connect Google again.') from None

@@ -48,6 +48,17 @@ class BriefMessage(BaseModel):
 class SheetDestination(BaseModel):
     value: str = Field(min_length=10,max_length=500)
 
+class SheetRows(SheetDestination):
+    tab_id: int
+    header_row: int = Field(default=1,ge=1,le=100)
+class SheetMapping(BaseModel):
+    snapshot_id: str = Field(min_length=10,max_length=100)
+    mapping: dict[str,int]
+    history_ack: bool = False
+class SheetCommit(BaseModel):
+    snapshot_id: str = Field(min_length=10,max_length=100)
+    confirm: bool = False
+
 class ConnectionKey(BaseModel):
     key: SecretStr
 
@@ -111,6 +122,8 @@ def create_app(settings=None, provider=None):
     jev_connection = JevConnection(settings)
     codex_connection = CodexAuth(settings.data_dir)
     google_connection = GoogleConnection(settings)
+    from .sheets_import import SheetsImport
+    sheets_import=SheetsImport(google_connection,store)
     research = Discovery(store,codex_connection,ResearchBrowser(provider.linkedin) if hasattr(provider,"linkedin") else None,jev_connection)
     store.setting("research_active",False)
     from .outreach import Composer
@@ -233,6 +246,27 @@ def create_app(settings=None, provider=None):
     @app.post('/api/connections/google/sheet',dependencies=[Depends(auth)])
     def google_select(body:SheetDestination):
         with connection_idle():return google_connection.select_sheet(store,body.value)
+
+    @app.get('/api/connections/google/picker',dependencies=[Depends(auth)])
+    def google_picker():
+        with connection_idle():
+            return JSONResponse(google_connection.picker_config(),headers={'Cache-Control':'no-store','Pragma':'no-cache'})
+
+    @app.post('/api/sheets/inspect',dependencies=[Depends(auth)])
+    def sheet_inspect(body:SheetDestination):
+        with connection_idle():return sheets_import.inspect(body.value)
+
+    @app.post('/api/sheets/rows',dependencies=[Depends(auth)])
+    def sheet_rows(body:SheetRows):
+        with connection_idle():return sheets_import.rows(body.value,body.tab_id,body.header_row)
+
+    @app.post('/api/sheets/preview',dependencies=[Depends(auth)])
+    def sheet_preview(body:SheetMapping):
+        with connection_idle():return sheets_import.preview(body.snapshot_id,body.mapping,body.history_ack)
+
+    @app.post('/api/sheets/import',dependencies=[Depends(auth)])
+    def sheet_import(body:SheetCommit):
+        with connection_idle():return sheets_import.commit(body.snapshot_id,body.confirm)
 
     @app.post('/api/sheets/create', dependencies=[Depends(auth)])
     def google_create():

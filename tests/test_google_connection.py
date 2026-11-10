@@ -59,3 +59,26 @@ def test_callback_rejects_unbound_request_without_echoing_code(tmp_path):
         assert response.status_code==400 and 'private-test-code' not in response.text
         assert response.headers['cache-control']=='no-store'
         assert response.headers['referrer-policy']=='no-referrer'
+
+def test_picker_config_only_short_lived_token(google,monkeypatch):
+    monkeypatch.setenv('GOOGLE_PICKER_API_KEY','fixture-key')
+    monkeypatch.setenv('GOOGLE_CLOUD_PROJECT_NUMBER','123456')
+    creds=Credentials(token='fixture-access',refresh_token='fixture-refresh',token_uri='https://oauth2.googleapis.com/token',client_id='fixture-client',client_secret='fixture-secret',scopes=[SCOPE])
+    monkeypatch.setattr(google,'credentials',lambda:creds)
+    value=google.picker_config()
+    assert value=={'access_token':'fixture-access','api_key':'fixture-key','app_id':'123456'}
+    assert 'fixture-refresh' not in json.dumps(value) and 'fixture-secret' not in json.dumps(value)
+    monkeypatch.setenv('GOOGLE_CLOUD_PROJECT_NUMBER','project-name')
+    with pytest.raises(ProviderError,match='PROJECT_NUMBER'):google.picker_config()
+
+def test_import_endpoints_require_auth_and_picker_no_store(tmp_path,monkeypatch):
+    from fastapi.testclient import TestClient
+    from workbench.app import create_app
+    from workbench.config import Settings
+    monkeypatch.setattr(GoogleConnection,'picker_config',lambda self:{'access_token':'fixture-access'})
+    with TestClient(create_app(Settings(tmp_path,'x'*32,'demo','',10,'',''))) as api:
+        for path in ('inspect','rows','preview','import'):
+            assert api.post('/api/sheets/'+path,json={}).status_code==401
+        assert api.get('/api/connections/google/picker').status_code==401
+        response=api.get('/api/connections/google/picker',headers={'Authorization':'Bearer '+'x'*32})
+        assert response.status_code==200 and response.headers['cache-control']=='no-store'

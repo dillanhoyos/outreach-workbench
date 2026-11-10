@@ -14,6 +14,7 @@ async function api(path, body, method) {
 }
 async function run(fn) { try { error(''); await fn(); } catch (e) { error(e.message); } }
 function controls() {
+  if (typeof sheetsControls === 'function') sheetsControls();
   const connected = Boolean(workspace), idle = connected && !workspace.busy;
   for (const id of ['discover', 'refresh']) $(id).disabled = !idle;
   $('brief-send').disabled = !idle || briefSubmitting || workspace.mode !== 'live' || !(workspace.discovery.plan_ready ?? workspace.discovery.ready);
@@ -200,7 +201,7 @@ setInterval(() => { if (token && workspace) run(refresh); }, 1000);
 
 function renderConnections() {
   const c = connections.codex, j = connections.jev, g = connections.google;
-  $('google-message').textContent = g.connected ? 'Google connected. Create or sync your CRM spreadsheet below.' : g.message || 'Google is not connected.';
+  $('google-message').textContent = g.connected ? 'Google connected. Paste a spreadsheet URL or choose a file below.' : g.message || 'Google is not connected.';
   $('google-open').hidden = !workspace.google_sheet_id;
   if (workspace.google_sheet_id) $('google-open').href = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(workspace.google_sheet_id) + '/edit';
   $('codex-state').textContent = !c.available ? 'Unavailable' : c.signed_in ? 'Signed in' : c.pending ? 'Awaiting sign-in' : 'Not connected';

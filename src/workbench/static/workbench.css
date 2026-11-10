@@ -201,3 +201,10 @@ td button{font-size:11px;padding:7px 10px}td a{margin-left:8px}
 .recipient-row .recipient-unavailable{color:#876b40;white-space:normal}
 .recipient-row:has(input:disabled){cursor:default}
 @media(max-width:380px){.outreach-filters{grid-template-columns:1fr}}
+
+/* Keep spreadsheet setup and mapping readable inside the shared workspace. */
+#google-import { margin-block: 1rem; }
+#google-import .scroll { max-height: 18rem; overflow: auto; margin-block: .75rem; }
+#google-column-mapping { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: .75rem; }
+#google-import select { width: 100%; }
+#google-tab-step, #google-map-step, #google-preview-step { margin-block: 1rem; }

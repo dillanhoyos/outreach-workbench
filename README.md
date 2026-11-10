@@ -56,7 +56,7 @@ In `.env`, set `WORKBENCH_MODE=live` and configure only the services you need:
 | `WORKBENCH_TOKEN`, `VNC_PASSWORD` | Created by `python3 scripts/setup.py` | Local app / browser access |
 | Jev connection panel; `BROWSER_ADVISOR=jev` enables assistance | Your key from [TypeSafe](https://console.typesafe.ai/keys) | Optional Jev browser assistance |
 | Codex connection panel | Your ChatGPT sign-in or OpenAI API key | Research planning and evidence assessment |
-| Google sign-in (own OAuth client), or `GOOGLE_SHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Your workbook and downloaded service-account file | Optional Sheets export |
+| Google sign-in (own OAuth client), or `GOOGLE_SHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Your workbook and downloaded service-account file | Optional Sheets import/export |
 
 LinkedIn login happens directly in the browser, including 2FA. No LinkedIn
 password belongs in `.env`. Leave Jev disabled (`BROWSER_ADVISOR=none`) to use
@@ -92,7 +92,7 @@ an inactive localhost link. See [browser troubleshooting](docs/AUTHENTICATION.md
   cards and imports visible incoming messages only for known CRM profile URLs.
   The limit is unique conversation cards, not message count. It does not claim a
   complete inbox archive; old unloaded messages and other folders may be missing.
-- **Sheets sync:** Google OAuth for an app-created CRM workbook, or a service
+- **Sheets sync:** Google OAuth with URL/Picker import and column mapping, or an app-created export workbook, or a service
   account for your own workbook. Optional manual snapshot sync to three installation-owned tabs.
   Messages are written as literal values, then read back. Existing unrelated tabs
   are preserved. SQLite remains the source of truth; sheet edits do not import back.
@@ -157,3 +157,5 @@ docker compose up --build -d --force-recreate --wait
 For live mode, use `docker compose --profile live up --build -d --force-recreate --wait`
 in the last step. Open `.env` locally and copy the new `WORKBENCH_TOKEN` value into
 the app. Do not share the file or token. No volume deletion is needed.
+
+Google Sheets: [one-time OAuth setup and import walkthrough](docs/GOOGLE_SHEETS.md).

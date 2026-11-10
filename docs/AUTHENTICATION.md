@@ -137,36 +137,10 @@ This app calls the Sheets API directly using your Google OAuth connection. An MC
 server is not required for deterministic CRM exports, and a Google connection
 inside Codex or ChatGPT is not automatically available to a separate Docker app.
 
-Each self-hosted installation needs its own Google Cloud OAuth configuration:
-
-1. Create a Google Cloud project and enable the **Google Sheets API**.
-2. Configure Google Auth Platform branding, audience and data access. Request
-   `https://www.googleapis.com/auth/drive.file`. Add your Google account as a test
-   user while the consent screen is in Testing.
-3. Create an OAuth client of type **Web application**. Register
-   `http://localhost:8080/api/connections/google/callback` as an authorized redirect
-   URI, replacing 8080 with your actual app port. Remote setups must use the exact
-   forwarded local URL or an HTTPS callback you control.
-4. Download the client JSON to `secrets/google-oauth-client.json`. Set:
-
-   ```dotenv
-   GOOGLE_OAUTH_CLIENT_FILE=/run/secrets/google-oauth-client.json
-   GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8080/api/connections/google/callback
-   ```
-
-5. Recreate the app, click **Connect Google**, and complete Google's consent page.
-   Return to the app; it checks connection state automatically.
-6. In live mode, click **Create CRM spreadsheet**, then **Sync spreadsheet**.
-   The app creates a dedicated workbook and exports local leads, replies and
-   deliveries. It does not read/import an existing CRM's contact history.
-
-The scope limits access to app-created/authorized files. This release creates a
-new workbook; Google Picker for selecting an existing file is not included.
-Service accounts remain supported below for an operator-specified empty workbook.
-If a create request has an uncertain result, the app stops rather than creating
-duplicates: inspect Google Drive and use **Reconnect an app-created spreadsheet** to verify
-its URL before proceeding. The same control can restore access to a workbook
-previously created with this Google OAuth client and account.
+Follow [Google Sheets setup](GOOGLE_SHEETS.md) for OAuth, Google Picker, pasted URLs,
+column mapping and local imports. The app uses the narrow `drive.file` scope;
+choose existing files in Picker to grant this installation access. Imports do not
+change the source spreadsheet or select an export destination.
 
 OAuth uses a one-time state value and PKCE. Refresh credentials persist in
 `/data/connections/google.json` with owner-only permissions; recreating the app
