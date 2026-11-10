@@ -192,3 +192,12 @@ td button{font-size:11px;padding:7px 10px}td a{margin-left:8px}
  #browser-empty p{font-size:11px;margin-bottom:10px}
  #browser-empty button{font-size:11px;padding:8px 12px}
 }
+.outreach-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;margin:12px 0}
+.outreach-filters label{margin:0;font-size:11px;color:var(--muted)}
+.outreach-filters select{display:block;margin-top:5px;font-size:12px;padding:8px}
+.outreach-filters .inline-check{align-self:end;padding-bottom:10px}
+.filter-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;font-size:11px;color:var(--muted)}
+.filter-summary span{flex:1}.filter-summary button{white-space:nowrap}
+.recipient-row .recipient-unavailable{color:#876b40;white-space:normal}
+.recipient-row:has(input:disabled){cursor:default}
+@media(max-width:380px){.outreach-filters{grid-template-columns:1fr}}

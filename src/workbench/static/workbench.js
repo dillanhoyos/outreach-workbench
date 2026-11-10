@@ -653,12 +653,54 @@ function saveBatch(){
   try{sessionStorage.setItem('workbench-batch',JSON.stringify({selected:[...batchSelected],notes:Object.fromEntries(batchNotes),job_id:batchJobId}));}catch(_){}
 }
 function selectedContacts(){return crmRecords.filter(l=>batchSelected.has(l.id) && l.outreach_available);}
-function matchingRecipients(){
-  const query=$('recipient-search').value.trim().toLocaleLowerCase();
-  return crmRecords.filter(l=>l.outreach_available && (l.name+' '+l.company+' '+l.role).toLocaleLowerCase().includes(query));
+const recipientFilterIds=['recipient-search','recipient-status','recipient-fit','recipient-campaign','recipient-company','recipient-country','recipient-selected'];
+let restoredRecipientFilters=null;
+try{restoredRecipientFilters=JSON.parse(sessionStorage.getItem('workbench-recipient-filters') || 'null');}catch(_){}
+function recipientFilterValues(){
+  return Object.fromEntries(recipientFilterIds.map(id=>[id,$(id).type==='checkbox'?$(id).checked:$(id).value]));
+}
+function recipientMatches(lead,filters,selected){
+  const query=(filters['recipient-search'] || '').trim().normalize('NFD').replace(/[̀-ͯ]/g,'').toLocaleLowerCase();
+  const text=[lead.name,lead.company,lead.role,lead.country].join(' ').normalize('NFD').replace(/[̀-ͯ]/g,'').toLocaleLowerCase();
+  const status=filters['recipient-status'] || 'available';
+  return text.includes(query) &&
+    (status==='all' || (status==='available'?Boolean(lead.outreach_available):(lead.outreach_status || lead.status)===status)) &&
+    (!filters['recipient-fit'] || lead.qualification===filters['recipient-fit']) &&
+    (!filters['recipient-campaign'] || lead.campaign_id===filters['recipient-campaign']) &&
+    (!filters['recipient-company'] || (lead.company || '').trim()===filters['recipient-company']) &&
+    (!filters['recipient-country'] || (lead.country || '').trim()===filters['recipient-country']) &&
+    (!filters['recipient-selected'] || selected.has(lead.id));
+}
+function matchingRecipients(){return crmRecords.filter(l=>recipientMatches(l,recipientFilterValues(),batchSelected));}
+function updateRecipientFacets(){
+  for(const [id,key,label] of [['recipient-campaign','campaign_id','All campaigns'],['recipient-company','company','All companies'],['recipient-country','country','All countries']]){
+    const options=new Map();
+    for(const lead of crmRecords){const value=(lead[key] || '').trim();if(value)options.set(value,key==='campaign_id'?lead.campaign:value);}
+    const entries=[...options].sort((a,b)=>a[1].localeCompare(b[1]));
+    const node=$(id),revision=JSON.stringify(entries);
+    if(node.dataset.revision!==revision){
+      const selected=restoredRecipientFilters?.[id] ?? node.value;
+      node.replaceChildren(new Option(label,''),...entries.map(([value,text])=>new Option(text,value)));
+      node.value=options.has(selected)?selected:'';node.dataset.revision=revision;
+    }
+  }
+  if(restoredRecipientFilters){
+    for(const id of recipientFilterIds.filter(id=>!['recipient-campaign','recipient-company','recipient-country'].includes(id))){
+      if(restoredRecipientFilters[id]!==undefined){
+        if($(id).type==='checkbox')$(id).checked=Boolean(restoredRecipientFilters[id]);
+        else $(id).value=restoredRecipientFilters[id];
+      }
+    }
+    restoredRecipientFilters=null;
+  }
+}
+function changeRecipientFilters(){
+  $('batch-confirm').checked=false;
+  try{sessionStorage.setItem('workbench-recipient-filters',JSON.stringify(recipientFilterValues()));}catch(_){}
+  renderRecipients();
 }
 function batchControls(){
-  const selected=selectedContacts(),visible=matchingRecipients(),locked=batchBusy || Boolean(workspace?.busy);
+  const selected=selectedContacts(),visible=matchingRecipients().filter(l=>l.outreach_available),locked=batchBusy || Boolean(workspace?.busy);
   const ready=selected.length>0 && selected.every(l=>{const note=batchNotes.get(l.id)?.trim();return note && note.length<=200;});
   $('batch-count').textContent=selected.length+' selected';
   $('batch-generate').disabled=locked || !selected.length || !$('outreach-prompt').value.trim();
@@ -671,25 +713,30 @@ function batchControls(){
   $('recipient-all').indeterminate=visible.some(l=>batchSelected.has(l.id)) && !$('recipient-all').checked;
   $('batch-confirm').disabled=locked || !ready;
   $('outreach-prompt').disabled=locked;
-  for(const input of $('recipient-list').querySelectorAll('input'))input.disabled=locked;
+  for(const input of $('recipient-list').querySelectorAll('input'))input.disabled=locked || input.dataset.available!=='true';
   for(const input of $('batch-drafts').querySelectorAll('textarea'))input.disabled=locked;
 }
 function renderRecipients(){
+  updateRecipientFacets();
   const available=matchingRecipients();
-  const revision=JSON.stringify(available.map(l=>[l.id,l.name,l.company,l.role]))+JSON.stringify([...batchSelected]);
+  const revision=JSON.stringify(available.map(l=>[l.id,l.name,l.company,l.role,l.country,l.outreach_available,l.availability_reason,l.outreach_status,l.qualification]))+JSON.stringify([...batchSelected]);
   if(revision!==recipientRevision){
     recipientRevision=revision;const root=$('recipient-list');root.replaceChildren();
     for(const lead of available){
       const row=document.createElement('label');row.className='recipient-row';
-      const check=document.createElement('input');check.type='checkbox';check.checked=batchSelected.has(lead.id);check.dataset.leadId=lead.id;
-      check.onchange=()=>{if(check.checked && batchSelected.size>=100){check.checked=false;$('batch-status').textContent='Choose up to 100 recipients per batch.';return;}
+      const check=document.createElement('input');check.type='checkbox';check.checked=batchSelected.has(lead.id);check.dataset.leadId=lead.id;check.dataset.available=String(Boolean(lead.outreach_available));
+      check.onchange=()=>{if(!lead.outreach_available){check.checked=false;return;}if(check.checked && batchSelected.size>=100){check.checked=false;$('batch-status').textContent='Choose up to 100 recipients per batch.';return;}
         check.checked?batchSelected.add(lead.id):batchSelected.delete(lead.id);$('batch-confirm').checked=false;saveBatch();renderRecipients();renderBatchDrafts();};
       const info=document.createElement('span'),name=document.createElement('strong'),meta=document.createElement('small');
-      name.textContent=lead.name;meta.textContent=lead.role+' · '+lead.company;info.append(name,meta);row.append(check,info);root.append(row);
+      name.textContent=lead.name;meta.textContent=[lead.role,lead.company,lead.country].filter(Boolean).join(' · ');info.append(name,meta);
+      if(!lead.outreach_available){const reason=document.createElement('small');reason.className='recipient-unavailable';reason.textContent=lead.availability_reason || (lead.qualification || lead.outreach_status || 'Unavailable').replaceAll('_',' ');info.append(reason);}row.append(check,info);root.append(row);
     }
-    if(!available.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='No eligible contacts match. Research more people or review your CRM.';root.append(empty);}
+    if(!available.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='No contacts match these filters. Reset filters or research more people.';root.append(empty);}
   }
-  $('outreach-availability').textContent=available.length+' eligible contacts shown · up to 100 per batch · sent one at a time.';
+  const eligible=available.filter(l=>l.outreach_available).length;
+  const visibleIds=new Set(available.map(l=>l.id)),hidden=selectedContacts().filter(l=>!visibleIds.has(l.id)).length;
+  $('recipient-selection-summary').textContent=hidden?hidden+' selected contacts hidden by filters — still included in your batch.':'Filters do not clear your selection.';
+  $('outreach-availability').textContent=available.length+' of '+crmRecords.length+' contacts shown · '+eligible+' available to select · up to 100 per batch.';
   batchControls();
 }
 function renderBatchDrafts(){
@@ -705,11 +752,16 @@ function renderBatchDrafts(){
   }
   batchControls();
 }
-$('recipient-search').oninput=renderRecipients;
+$('recipient-search').oninput=changeRecipientFilters;
+for(const id of recipientFilterIds.filter(id=>id!=='recipient-search'))$(id).onchange=changeRecipientFilters;
+$('recipient-reset').onclick=()=>{
+  for(const id of recipientFilterIds){if($(id).type==='checkbox')$(id).checked=false;else $(id).value=id==='recipient-status'?'available':'';}
+  changeRecipientFilters();
+};
 $('outreach-prompt').addEventListener('input',()=>{$('batch-confirm').checked=false;batchControls();});
 $('recipient-all').onchange=()=>{
   const checked=$('recipient-all').checked;
-  for(const l of matchingRecipients()){if(checked && batchSelected.size<100)batchSelected.add(l.id);else if(!checked)batchSelected.delete(l.id);}
+  for(const l of matchingRecipients().filter(l=>l.outreach_available)){if(checked && batchSelected.size<100)batchSelected.add(l.id);else if(!checked)batchSelected.delete(l.id);}
   $('batch-confirm').checked=false;saveBatch();renderRecipients();renderBatchDrafts();
 };
 $('batch-clear').onclick=()=>{batchSelected.clear();$('batch-confirm').checked=false;saveBatch();renderRecipients();renderBatchDrafts();};

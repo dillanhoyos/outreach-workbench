@@ -11,8 +11,16 @@
 <div class="section-head"><div><span class="eyebrow">OUTREACH</span><h2>Start conversations</h2></div><span class="badge" id="batch-count" role="status" aria-live="polite">0 selected</span></div>
 <p class="caption">Select the right people. Make each message personal.</p>
 <label for="outreach-prompt">Message instructions</label><textarea id="outreach-prompt" rows="3" placeholder="Introduce my background, explain why their company interests me, and ask to connect. Keep it friendly and specific."></textarea>
-<div class="recipient-toolbar"><input id="recipient-search" type="search" placeholder="Search people or companies" aria-label="Search eligible contacts"><label class="inline-check"><input id="recipient-all" type="checkbox"><span>Select all shown</span></label></div>
-<div id="recipient-list" class="recipient-list" role="group" aria-label="Eligible CRM contacts"></div>
+<div class="recipient-toolbar"><input id="recipient-search" type="search" placeholder="Search people or companies" aria-label="Search contacts"><label class="inline-check"><input id="recipient-all" type="checkbox"><span>Select all shown</span></label></div>
+<div class="outreach-filters" aria-label="Outreach filters">
+<label>Status<select id="recipient-status"><option value="available">Available to contact</option><option value="all">All statuses</option><option value="confirmed">Sent</option><option value="blocked">Blocked</option><option value="uncertain">Uncertain</option><option value="skipped">Skipped / already connected</option><option value="simulated">Simulated</option></select></label>
+<label>Qualification<select id="recipient-fit"><option value="">Any qualification</option><option value="qualified">Qualified</option><option value="missing_evidence">Missing evidence</option><option value="not_applicable">Not applicable</option><option value="excluded">Excluded</option></select></label>
+<label>Campaign<select id="recipient-campaign"><option value="">All campaigns</option></select></label>
+<label>Company<select id="recipient-company"><option value="">All companies</option></select></label>
+<label>Country<select id="recipient-country"><option value="">All countries</option></select></label>
+<label class="inline-check"><input id="recipient-selected" type="checkbox"><span>Selected only</span></label>
+</div><div class="filter-summary"><span id="recipient-selection-summary" role="status"></span><button id="recipient-reset" class="quiet">Reset filters</button></div>
+<div id="recipient-list" class="recipient-list" role="group" aria-label="Filtered CRM contacts"></div>
 <p id="outreach-availability" class="caption" role="status"></p>
 <div class="batch-actions"><button id="batch-generate" disabled>Generate selected messages</button><button id="batch-clear" class="secondary">Clear selection</button></div>
 <p id="batch-status" role="status" aria-live="polite"></p>

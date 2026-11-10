@@ -62,6 +62,19 @@ async def main():
   await page.check('#recipient-all')
   assert await page.locator('#batch-count').inner_text()=='2 selected'
   assert 'Demo Person 1' not in await page.locator('#recipient-list').inner_text()
+  await page.select_option('#recipient-status','all')
+  assert await page.locator('#recipient-list input').count()==3
+  assert await page.locator('#recipient-list input:disabled').count()==1
+  await page.select_option('#recipient-status','simulated')
+  assert await page.locator('#recipient-list input').count()==1
+  assert await page.locator('#recipient-all').is_disabled()
+  assert '2 selected contacts hidden' in await page.locator('#recipient-selection-summary').inner_text()
+  await page.select_option('#recipient-fit','missing_evidence')
+  assert await page.locator('#recipient-list input').count()==0
+  await page.click('#recipient-reset')
+  assert await page.locator('#batch-count').inner_text()=='2 selected'
+  await page.select_option('#recipient-company',label='Example Infrastructure 1')
+  await page.check('#recipient-selected')
   await page.click('#batch-generate')
   await page.wait_for_function("document.querySelector('#batch-status').textContent.includes('Messages ready')")
   assert await page.locator('#batch-drafts textarea').count()==2
@@ -72,6 +85,8 @@ async def main():
   await page.reload();await page.fill('#token','x'*32);await page.click('#connect')
   await page.wait_for_function("document.querySelector('#batch-drafts').children.length===2")
   assert await page.locator('#batch-drafts textarea').first.input_value()=='A changed note for review.'
+  assert await page.locator('#recipient-company').input_value()=='Example Infrastructure 1'
+  assert await page.locator('#recipient-selected').is_checked()
   assert await page.locator('.sidebar').count()==0
   assert await page.locator('.topbar nav').is_visible()
   work=await page.locator('#outreach-start').bounding_box();browser=await page.locator('#browser-section').bounding_box()

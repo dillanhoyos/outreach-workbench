@@ -70,8 +70,14 @@ never placed in browser storage.
 
 ## Selecting and sending a batch
 
-The Outreach list contains only contacts the CRM currently considers available.
-Search by person, company or role. **Select all shown** selects the filtered list,
+The Outreach list defaults to contacts the CRM currently considers available.
+Filter by outreach status, qualification, current campaign, company and country;
+search names, companies, roles and countries (accent-insensitive). Other statuses
+can be inspected but unavailable contacts cannot be selected. **Selected only**
+shows the current selection. Filters are combined and persist in this tab across
+refreshes. **Reset filters** restores available contacts without clearing the
+batch. A notice shows how many selected contacts are hidden by current filters;
+those contacts remain included in generation and sending. **Select all shown** selects the filtered list,
 up to 100 recipients; clearing the filter preserves selections. The count shows
 the actual batch size.
 
