@@ -313,3 +313,8 @@ button:not(:disabled):active{transform:translateY(1px)}
 #crm-grid .crm-secondary{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #crm-grid .company-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #crm-grid .contact-name{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(min-width:761px){
+ #outreach{display:flex;flex-direction:column;height:calc(100vh - 165px);max-height:none}
+ #outreach>.section-head,#outreach>.crm-overview,#outreach>.crm-filters,#outreach>.crm-table-meta,#outreach>.crm-report,#outreach>.crm-footnote{flex-shrink:0}
+ #crm-grid-scroll{flex:1;min-height:180px;max-height:none}
+}
