@@ -527,7 +527,7 @@ $('clear-search-history').onclick=()=>run(async()=>{
   } finally {controls();}
 });
 
-let crmRecords=[],crmReports=[];
+let crmRecords=[],crmReports=[],crmSort={key:"name",direction:1};
 const crmFilterLabels={all:'All profiles',qualified:'Qualified',not_applicable:'Visited · not applicable',missing_evidence:'Missing evidence',other:'Other / interrupted',available:'Available for outreach',sent:'Sent',blocked:'Blocked',uncertain:'Uncertain'};
 function crmCategory(lead) {
   if(lead.qualification) return ({qualified:'qualified',not_applicable:'not_applicable',missing_evidence:'missing_evidence'})[lead.qualification] || 'other';
@@ -548,7 +548,24 @@ function renderCrm(leads,status) {
   for(const lead of leads)counts[crmCategory(lead)]++;
   for(const k of ['available','sent','blocked','uncertain'])counts[k]=leads.filter(l=>crmMatches(l,k)).length;
   for(const option of $('crm-filter').options)option.textContent=crmFilterLabels[option.value]+' ('+counts[option.value]+')';
-  const visible=selection==='all'?leads:leads.filter(lead=>crmMatches(lead,selection));
+  const query=$('crm-search').value.trim().toLocaleLowerCase();
+  const visible=(selection==='all'?leads:leads.filter(lead=>crmMatches(lead,selection)))
+    .filter(l=>!query || [l.name,l.company,l.role,l.country,l.campaign].some(v=>String(v || '').toLocaleLowerCase().includes(query)))
+    .sort((a,b)=>String(a[crmSort.key] || '').localeCompare(String(b[crmSort.key] || ''),undefined,{numeric:true,sensitivity:'base'})*crmSort.direction);
+  $('crm-grid').dataset.density=$('crm-density').value;
+  for(const th of document.querySelectorAll('#crm-grid th[data-sort]')){
+    const active=th.dataset.sort===crmSort.key;
+    th.setAttribute('aria-sort',active?(crmSort.direction===1?'ascending':'descending'):'none');
+    th.querySelector('.sort-icon').textContent=active?(crmSort.direction===1?'↑':'↓'):'↕';
+  }
+  const overview=$('crm-overview');overview.replaceChildren();
+  for(const [key,label,tone] of [['all','Contacts','neutral'],['qualified','Qualified','success'],['available','Ready to contact','info'],['missing_evidence','Needs evidence','warning']]){
+    const metric=document.createElement('button');metric.className='crm-metric '+tone;
+    metric.setAttribute('aria-pressed',String(selection===key));
+    const number=document.createElement('strong');number.textContent=counts[key];
+    const text=document.createElement('span');text.textContent=label;metric.append(number,text);
+    metric.onclick=()=>{$('crm-filter').value=key;$('crm-filter').dispatchEvent(new Event('change'));};overview.append(metric);
+  }
   $('crm-report').replaceChildren();
   const table=document.createElement('table'),head=table.createTHead().insertRow();
   for(const name of ['Campaign','Researched','Qualified','Attempted','Sent']) {const cell=document.createElement('th');cell.textContent=name;head.append(cell);}
@@ -557,24 +574,35 @@ function renderCrm(leads,status) {
   $('crm-report').append(table);
   $('crm-filter-count').textContent='Showing '+visible.length+' of '+leads.length+' profiles';
     $('leads').replaceChildren();
-    if (!visible.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 6; cell.className = 'empty'; cell.textContent = leads.length ? 'No profiles match this filter. Choose All profiles to see your CRM.' : 'No candidates yet. Start with Find leads.'; }
-    for (const lead of visible) {
-      const tr = document.createElement('tr');
-      for (const value of [lead.name, (lead.company || 'Company not confirmed') + ' / ' + (lead.role || 'Role not confirmed'),
-        (lead.campaign || 'Unassigned')+'\n'+(lead.qualification || lead.status).replaceAll('_',' '),
-        (lead.outreach_status || 'not_contacted').replaceAll('_',' ')+' · '+(lead.approval || 'review'),
-        'Verified: '+(lead.last_verified_at?.slice(0,10) || 'Unknown')+'\nContact: '+(lead.last_contact_at?.slice(0,10) || 'None')]) { const td = document.createElement('td'); td.textContent = value; td.style.whiteSpace='pre-line';tr.append(td); }
+    if (!visible.length) { const row = $('leads').insertRow(); const cell = row.insertCell(); cell.colSpan = 9; cell.className = 'empty'; cell.textContent = leads.length ? 'No contacts match this view. Clear your search or reset filters.' : 'No candidates yet. Start with Find leads.'; }
+    for (const [index,lead] of visible.entries()) {
+      const tr=document.createElement('tr');tr.dataset.id=lead.id;
+      const cell=(value,cls='')=>{const td=document.createElement('td');td.className=cls;td.textContent=value || '—';td.title=value || '';tr.append(td);return td;};
+      cell(String(index+1),'row-number');
+      const person=cell('','person-cell');person.replaceChildren();
+      const name=document.createElement('button');name.className='contact-name';name.textContent=lead.name || 'Unnamed contact';person.append(name);
+      const company=cell(lead.company || 'Not confirmed','company-cell');
+      const role=document.createElement('span');role.className='crm-secondary';role.textContent=lead.role || 'Role not confirmed';role.title=role.textContent;company.append(role);
+      cell(lead.country,'country-cell');
+      const fit=cell('');fit.replaceChildren(crmBadge(lead.qualification || 'unassessed'));
+      const campaign=cell(lead.campaign || 'Unassigned','campaign-cell');campaign.title=lead.campaign || 'Unassigned';
+      const outreach=cell('');outreach.replaceChildren(crmBadge(lead.outreach_status || 'not_contacted'));
+      const availability=document.createElement('span');availability.className='crm-secondary';availability.textContent=lead.outreach_available?'Ready to contact':lead.availability_reason || lead.approval || 'Review';availability.title=availability.textContent;outreach.append(availability);
+      const verified=cell(lead.last_verified_at?.slice(0,10) || 'Not verified','date-cell');
+      if(lead.last_contact_at){const contacted=document.createElement('span');contacted.className='crm-secondary';contacted.textContent='Contacted '+lead.last_contact_at.slice(0,10);verified.append(contacted);}
+      const details=document.createElement('div');details.className='crm-detail';
+      name.onclick=()=>{ $('crm-detail-title').textContent=lead.name;$('crm-detail-content').replaceChildren(details);$('crm-detail-dialog').showModal(); };
       if(lead.visited_at || lead.assessments?.length) {
-        const details=document.createElement('details'),summary=document.createElement('summary');
-        summary.textContent=lead.visited?'Visited · research details':'Visit attempted · research details';details.append(summary);
-        const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent='Visited: '+lead.visited_at+'\nAudience: '+(lead.audience || 'Prior audience unavailable')+'\nDecision: '+lead.reason;details.append(text);
+        const summary=document.createElement('h3');summary.textContent='Research & evidence';details.append(summary);
+        const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent='Last visited: '+(lead.visited_at || 'Not recorded')+'\nAudience: '+(lead.audience || lead.campaign || 'Unassigned')+'\nDecision: '+(lead.reason || lead.availability_reason || 'Review the assessments below.');details.append(text);
         for(const entry of (lead.research_history || []).slice(0,-1)){const p=document.createElement('p');p.textContent=entry.visited_at+' · '+entry.status+' · '+entry.audience+' · '+entry.reason;details.append(p);}
         for(const a of lead.assessments || []){const p=document.createElement('p');p.textContent=(a.campaign_name || 'Unassigned')+' · '+a.qualification+' · '+a.explanation;details.append(p);}
         for(const source of lead.sources || []){const p=document.createElement('p');p.textContent=source.fact_type+': “'+source.quotation+'” · '+source.captured_at;details.append(p);try{const u=new URL(source.source_url);if(u.protocol==='https:' && !u.username && !u.password){const a=document.createElement('a');a.href=u.href;a.textContent='Source ↗';a.target='_blank';a.rel='noopener noreferrer';details.append(a);}}catch(_){}}
         for(const m of lead.messages || []){const p=document.createElement('p');p.textContent=m.direction+' · '+m.occurred_at+' · '+m.body;details.append(p);}
-        details.className='crm-detail';tr.firstChild.append(details);
+
       }
-      const td = document.createElement('td'), button = document.createElement('button');
+      if(!details.children.length)details.textContent='No research evidence has been recorded for this contact yet.';
+      const td = document.createElement('td'), button = document.createElement('button');td.className='crm-actions-cell';button.className='secondary';
       button.textContent = ['review','approved'].includes(lead.status) ? 'Compose message' : 'View outreach';
       button.disabled = !lead.person_id && String(lead.id).startsWith('visited:');
       if(String(lead.id).startsWith('visited:'))button.disabled=true;
@@ -585,6 +613,19 @@ function renderCrm(leads,status) {
     }
 
 }
+function crmBadge(value){
+  const label={qualified:'Qualified',not_applicable:'Not applicable',missing_evidence:'Missing evidence',unassessed:'Unassessed',interrupted:'Interrupted',excluded:'Excluded',not_contacted:'Not contacted',confirmed:'Sent',simulated:'Simulated',uncertain:'Uncertain',blocked:'Blocked',sending:'Sending',skipped:'Skipped',replied:'Replied'};
+  const tone=['qualified','confirmed','replied'].includes(value)?'success':['missing_evidence','uncertain','interrupted'].includes(value)?'warning':['excluded','blocked'].includes(value)?'danger':value==='sending'?'info':'neutral';
+  const span=document.createElement('span');span.className='status-pill '+tone;span.textContent=label[value] || String(value).replaceAll('_',' ');return span;
+}
+$('crm-detail-close').onclick=()=>$('crm-detail-dialog').close();
+$('crm-detail-dialog').onclick=e=>{if(e.target===$('crm-detail-dialog')){const rect=e.target.getBoundingClientRect();if(e.clientX<rect.left || e.clientX>rect.right || e.clientY<rect.top || e.clientY>rect.bottom)e.target.close();}};
+function saveCrmView(){try{sessionStorage.setItem('workbench-crm-view',JSON.stringify({search:$('crm-search').value,density:$('crm-density').value,sort:crmSort}));}catch(_){} }
+try{const saved=JSON.parse(sessionStorage.getItem('workbench-crm-view') || '{}');$('crm-search').value=saved.search || '';if(['compact','comfortable'].includes(saved.density))$('crm-density').value=saved.density;if(['name','company','country','qualification','campaign','outreach_status','last_verified_at'].includes(saved.sort?.key) && [1,-1].includes(saved.sort?.direction))crmSort=saved.sort;}catch(_){}
+$('crm-search').oninput=()=>{saveCrmView();if(workspace)renderCrm(crmRecords,workspace);};
+$('crm-density').onchange=()=>{saveCrmView();if(workspace)renderCrm(crmRecords,workspace);};
+for(const th of document.querySelectorAll('#crm-grid th[data-sort]'))th.querySelector('button').onclick=()=>{crmSort={key:th.dataset.sort,direction:crmSort.key===th.dataset.sort?-crmSort.direction:1};saveCrmView();if(workspace)renderCrm(crmRecords,workspace);};
+$('crm-reset').onclick=()=>{$('crm-search').value='';$('crm-campaign').value='';$('crm-filter').value='all';$('crm-density').value='compact';crmSort={key:'name',direction:1};saveCrmView();$('crm-filter').dispatchEvent(new Event('change'));};
 try {
   const saved=sessionStorage.getItem('workbench-crm-filter');
   if(Object.hasOwn(crmFilterLabels,saved))$('crm-filter').value=saved;

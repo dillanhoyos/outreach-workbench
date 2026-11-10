@@ -15,7 +15,30 @@ async def main():
   await page.wait_for_function("document.querySelector('#mode').textContent.includes('Demo') || document.querySelector('#discover').disabled===false")
   await page.locator('#research-brief').evaluate('(e)=>e.open=true');await page.fill('#discovery-prompt','Find fictional finance professionals');await page.click('#discover')
   await page.wait_for_function("document.querySelector('#leads').textContent.includes('Demo Person 1')")
-  await page.click('nav a[href="#outreach"]');await page.locator('#leads tr').first.get_by_role('button',name='Compose message').click()
+  await page.click('nav a[href="#outreach"]')
+  await page.locator('#crm-overview button').filter(has_text='Qualified').click();assert await page.locator('#crm-filter').input_value()=='qualified'
+  await page.click('#crm-reset')
+  await page.fill('#crm-search','Person 2');assert await page.locator('#leads tr').count()==1
+  assert 'Demo Person 2' in await page.locator('#leads').inner_text()
+  await page.fill('#crm-search','no-such-person');assert 'No contacts match' in await page.locator('#leads').inner_text()
+  await page.click('#crm-reset')
+  await page.locator('#crm-grid th[data-sort="name"] button').click()
+  assert await page.locator('#crm-grid th[data-sort="name"]').get_attribute('aria-sort')=='descending'
+  assert 'Demo Person 3' in await page.locator('#leads tr').first.inner_text()
+  await page.locator('#leads .contact-name').first.click();assert await page.locator('#crm-detail-dialog').is_visible()
+  await page.keyboard.press('Escape');assert not await page.locator('#crm-detail-dialog').is_visible()
+  await page.select_option('#crm-density','comfortable');assert await page.locator('#crm-grid').get_attribute('data-density')=='comfortable'
+  await page.click('#crm-reset')
+  assert await page.locator('#crm-grid thead').is_visible()
+  assert await page.locator('#leads').evaluate('(e)=>getComputedStyle(e).display')=='table-row-group'
+  await page.screenshot(path='/tmp/workbench-theme-crm-desktop.png',full_page=True)
+  await page.set_viewport_size({'width':390,'height':844})
+  assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+  assert await page.locator('#crm-grid-scroll').evaluate('(e)=>e.scrollWidth>e.clientWidth')
+  assert await page.locator('#crm-filter').evaluate('(e)=>e.clientWidth>=150')
+  await page.screenshot(path='/tmp/workbench-theme-crm-mobile.png',full_page=True)
+  await page.set_viewport_size({'width':1440,'height':1000})
+  await page.locator('#leads tr').first.get_by_role('button',name='Compose message').click()
   await page.locator('#browser-frame').evaluate('(e)=>e.dataset.sessionMarker="preserved"')
   for mode in ['discovery','compose','connections','activity','outreach']:
    await page.click('nav a[href="#'+mode+'"]')
