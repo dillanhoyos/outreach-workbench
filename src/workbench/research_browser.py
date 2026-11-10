@@ -30,6 +30,15 @@ class ResearchBrowser:
     def snapshot(self, url):
         self.linkedin.navigate(url)
         driver = self.linkedin.browser()
+        # LinkedIn 404/unavailable pages have no <main>; classify the navigation
+        # before waiting for profile markup. navigate() already checks auth/429.
+        if urlsplit(url).path.startswith('/in/'):
+            try:
+                same_identity=profile_key(driver.current_url)==profile_key(url)
+            except ValueError:
+                same_identity=False
+            if not same_identity:
+                raise ProfileIdentityError(url,driver.current_url)
         WebDriverWait(driver, 12).until(lambda d:d.find_elements(By.TAG_NAME,'main'))
         self.linkedin.check()
         # Capture only main professional content. Sidebar suggestions and activity

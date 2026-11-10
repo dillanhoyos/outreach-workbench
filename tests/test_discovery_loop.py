@@ -143,3 +143,60 @@ def test_browser_redirect_never_returns_other_person_evidence():
     browser.snapshot=lambda url:dict(url='https://www.linkedin.com/in/someone-else/',title='Other',links=[])
     with pytest.raises(ProfileIdentityError):
         browser.profile(PROFILE)
+
+
+def test_linkedin_starts_while_web_worker_still_researching(tmp_path,monkeypatch):
+    store,browser,engine,plan=setup(tmp_path)
+    visited=threading.Event()
+    original=browser.profile
+    def profile(url):
+        visited.set()
+        return original(url)
+    browser.profile=profile
+    def web(worker,p,*a,**kw):
+        if 'lane 1' not in p['prompt']:return []
+        worker._publish_candidates([{'url':PROFILE,'label':'First','web_company':browser.company(COMPANY)}])
+        assert visited.wait(3), 'LinkedIn waited for the whole web shortlist'
+        later=[{'url':f'https://www.linkedin.com/in/streamed-{i}/','label':'Later','web_company':browser.company(COMPANY)} for i in range(2)]
+        worker._publish_candidates(later)
+        return later
+    monkeypatch.setattr(research_web,'discover',web)
+    report=engine.run(plan['id'],True)
+    assert report['staged']==3 and report['visited']==3
+    assert report['reason']=='target_reached'
+
+
+def test_recheck_backlog_does_not_block_fresh_web_candidates(tmp_path,monkeypatch):
+    from workbench.errors import ProfileIdentityError
+    store,browser,engine,plan=setup(tmp_path)
+    old='https://www.linkedin.com/in/old-unresolved/'
+    redirected='https://www.linkedin.com/in/newer-redirect/'
+    evidence={'assessment':{'needs_web_evidence':True,'reason':'Identity unavailable'}}
+    engine.remember(old,'insufficient_evidence',evidence,'old-run','Old brief','2026-01-01T00:00:00+00:00')
+    engine.remember(redirected,'insufficient_evidence',evidence,'old-run','Old brief','2026-01-02T00:00:00+00:00')
+    plan['recheck_failed']=True;store.setting('research_plan',plan)
+    original=browser.profile;visited=[]
+    def profile(url):
+        visited.append(url)
+        if url==redirected:raise ProfileIdentityError(url,'https://www.linkedin.com/in/renamed/')
+        return original(url)
+    browser.profile=profile
+    def web(worker,p,*a,**kw):
+        if 'Research ONLY' in p['prompt']:return []
+        return [{'url':f'https://www.linkedin.com/in/fresh-{i}/','label':'New','web_company':browser.company(COMPANY)} for i in range(3)]
+    monkeypatch.setattr(research_web,'discover',web)
+    report=engine.run(plan['id'],True)
+    assert visited[0]==redirected and old not in visited
+    assert report['staged']==3 and report['visited']==4 and report['reason']=='target_reached'
+
+
+def test_profile_404_is_skipped_before_waiting_for_missing_main():
+    import pytest
+    from types import SimpleNamespace
+    from workbench.errors import ProfileIdentityError
+    from workbench.research_browser import ResearchBrowser
+    driver=SimpleNamespace(current_url='https://www.linkedin.com/404/')
+    linkedin=SimpleNamespace(navigate=lambda url:None,browser=lambda:driver)
+    with pytest.raises(ProfileIdentityError) as error:
+        ResearchBrowser(linkedin).profile(PROFILE)
+    assert error.value.observed_url=='https://www.linkedin.com/404/'

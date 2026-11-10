@@ -267,6 +267,7 @@ class Discovery:
             'Set needs_web_evidence=true only when required COMPANY facts such as batch or sector are missing, not when they contradict the brief or the current role is wrong. '
             'The company page must establish sector and any batch requirement. In web-first mode it is a captured primary web source. '
             'Location must be on the person profile when required by the brief. In web-first mode only, if geography is unrestricted, country and location_quote may both be empty. '
+            'CRM novelty, duplicate/contact history, target count, saving and outreach are controller responsibilities; do not reject because public evidence cannot establish those operational conditions. '
             'Quote exact contiguous passages from supplied text. current_role_quote must include the exact role AND employer and current employment evidence. '
             'An explicit role/employer in the supplied headline is acceptable self-reported current-role evidence; quote the entire headline exactly. Never treat former/ex roles as current. Use the profile heading as name. If evidence is missing or past-only, qualified=false. Do not infer from recommendations or posts.',
             {'brief':plan['prompt'],'profile':profile,'company':company},Candidate)
@@ -321,19 +322,25 @@ class Discovery:
         def remaining():
             guard()
             return report['staged']<plan['limit'] and (not plan['max_profiles'] or report['visited']<plan['max_profiles'])
-        if seeds is not None:
-            for seed in seeds:
-                guard()
-                targeted={**plan,'limit':1,'prompt':plan['prompt']+' Research ONLY the current company of '+seed['url']+'; return this exact profile URL.'}
-                matches=discover(self,targeted,run_id,guard)
-                # A missing web result still permits explicit rechecks, after web search.
-                matched=[x for x in matches if profile_key(x['url'])==profile_key(seed['url'])]
-                yield matched or [seed]
-            # A deliberately targeted run must never expand to unrelated people.
-            if plan.get('profile_url'):return
+        def recheck(seed):
+            guard()
+            targeted={**plan,'limit':1,'prompt':plan['prompt']+' Research ONLY the current company of '+seed['url']+'; return this exact profile URL.'}
+            matches=discover(self,targeted,run_id,guard)
+            # A missing web result still permits an explicitly requested recheck.
+            matched=[x for x in matches if profile_key(x['url'])==profile_key(seed['url'])]
+            return matched or [seed]
+        pending_seeds=iter(seeds or [])
+        if plan.get('profile_url'):
+            for seed in pending_seeds:
+                yield recheck(seed)
+            return  # Explicit single-profile runs never expand to other people.
         round_number=0
         tried_queries=list(plan["queries"])
         while remaining():
+            seed=next(pending_seeds,None)
+            if seed is not None:
+                yield recheck(seed)
+                if not remaining():return
             round_number+=1
             if not remaining():return
             self.event(run_id,'expanding_web',{'reason':f'{report["staged"]}/{plan["limit"]} saved. Two web workers are finding primary company evidence.'})

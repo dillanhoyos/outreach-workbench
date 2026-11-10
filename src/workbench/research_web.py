@@ -85,6 +85,8 @@ def fetch_source(url):
     match=re.fullmatch(r'/companies/([a-zA-Z0-9_-]+)(?:/.*)?',parsed.path)
     if parsed.scheme=='https' and parsed.hostname in ('www.ycombinator.com','ycombinator.com') and match and not parsed.username and not parsed.password and parsed.port in (None,443):
         url='https://www.ycombinator.com/companies/'+match.group(1)
+    if parsed.hostname in ('www.ycombinator.com','ycombinator.com') and parsed.path.startswith('/companies/industry/'):
+        raise ValueError('Use an individual company page, not an industry listing')
     for _ in range(4):
         u,address=public_address(url);connection=PinnedHTTPS(u.hostname,address)
         try:
@@ -132,7 +134,7 @@ def discover(engine,plan,run_id,guard,shared=None):
         'Use primary sources: accelerator directories for exact batch, official company pages for product/sector. '
         'Find up to the requested shortlist_size promising current founders/professionals across distinct companies where possible. '
         'Return primary company source URLs establishing the company criteria. You may leave name and profile_url empty: the controller will extract founder LinkedIn links directly from the primary page. '
-        'For YC briefs prefer the official YC company directory page, which lists batch, product, founders and LinkedIn links. '
+        'For YC briefs use individual official YC company pages (/companies/company-slug), never industry/category/search listings. These contain batch, product, founders and LinkedIn links. '
         'Do not invent URLs or use remembered facts without searching. Exclude known profiles. '
         'Follow your assigned queries/search lane; another worker handles other queries. '
         'Do not silently broaden hard criteria. Return fewer when evidence is unavailable.',
@@ -147,6 +149,7 @@ def discover(engine,plan,run_id,guard,shared=None):
             fit=engine.ask('Check ALL company-level requirements in the brief using only this captured primary source. '
                 'Exact accelerator batch must match when specified. Agent memory and monitoring count only when the brief includes them. '
                 'Ignore person-level role/location requirements here; LinkedIn will confirm those. '
+                'CRM novelty, duplicate/contact history, target count, saving and outreach instructions are controller responsibilities, not company-source criteria. Never reject because a public source cannot prove those operational conditions. '
                 'Provide exact contiguous quotations supporting each required company criterion. Missing or ambiguous evidence means qualified=false.',
                 {'brief':plan['prompt'],'source':page},CompanyFit)
             return page,fit
@@ -169,11 +172,17 @@ def discover(engine,plan,run_id,guard,shared=None):
             try:chosen=[research_url(item.profile_url,'profile')]
             except ValueError:chosen=[]
         else:chosen=sorted(observed)
+        ready=[]
         for url in chosen:
             if url not in observed or url in seen:continue
             seen.add(url)
-            links.append({'url':url,'label':item.name+' — '+item.company,'web_company':{
+            ready.append({'url':url,'label':item.name+' — '+item.company,'web_company':{
                 **page,'company_criteria_quotes':fit.quotes,'company_assessment':fit.reason}})
+        links.extend(ready)
+        publish=getattr(engine,'_publish_candidates',None)
+        if ready and publish:
+            engine.event(run_id,'web_candidates_ready',{'reason':f'{len(ready)} profiles have verified company evidence; sending them to LinkedIn while web research continues.'})
+            publish(ready)
     counts={}
     def priority(link):
         key=link['web_company']['url'];count=counts.get(key,0);counts[key]=count+1;return count

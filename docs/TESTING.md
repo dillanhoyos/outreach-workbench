@@ -128,3 +128,18 @@ them in contact details, filters replied contacts, and repeats the reader. Posit
 reply ingestion uses fictional messages; a live scan may legitimately find zero
 messages from known CRM contacts. Check the report rather than equating a finished
 job with imported replies. The live launcher test uses `scripts/run-replies.sh`.
+
+Live discovery validation (2026-11-10): an authenticated run for YC S24
+AI-agent/sandbox founders skipped a real profile-URL redirect, then saved three
+distinct qualified contacts in 118 seconds (four profile visits total). The
+persisted run ended with `target_reached`. Each saved record had an observed
+LinkedIn current-role quotation plus captured official YC batch/product evidence.
+The three records were checked under the CRM's Qualified filter, and the research
+completion screen and embedded browser were inspected. No outreach was sent.
+Contact identities, session data and screenshots remain outside the repository.
+
+The same exercise exposed an unavailable LinkedIn profile that redirects to
+`/404/` without normal profile markup. Navigation identity is now checked before
+waiting for that markup; the candidate is skipped rather than stopping the run.
+Regression coverage includes this case, continued saves after an identity skip,
+early web-to-LinkedIn handoff, recheck/search interleaving, and auth/rate-limit stops.

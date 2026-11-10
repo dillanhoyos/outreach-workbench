@@ -1,6 +1,7 @@
 """Two read-only web producers; the calling thread alone owns LinkedIn and CRM saves."""
 import copy
 import threading
+import queue
 from concurrent.futures import ThreadPoolExecutor, Future, wait, FIRST_COMPLETED
 from .errors import ProviderError
 
@@ -28,11 +29,17 @@ class WebPool:
         self.engine=engine;self.plan=plan;self.run_id=run_id;self.guard=guard
         self.cancel=threading.Event();self.cache=SourceCache()
         self.executor=ThreadPoolExecutor(max_workers=2,thread_name_prefix='research-web')
-        self.futures=[]
+        self.futures=[];self.ready=queue.Queue()
     def worker(self,index,plan):
         from .research_web import discover
         worker=copy.copy(self.engine)
         worker.browser=None
+        published=False
+        def publish(links):
+            nonlocal published
+            published=True
+            self.ready.put(links)
+        worker._publish_candidates=publish
         worker.stop=CombinedStop(self.engine._run_stop,self.cancel)
         worker._run_stop=worker.stop
         worker.event=lambda run_id,kind,detail:self.engine.event(run_id,kind,{**detail,'worker':index})
@@ -44,7 +51,7 @@ class WebPool:
             guard()
             result=discover(worker,plan,self.run_id,guard,shared=self.cache)
             worker.event(self.run_id,'web_worker_finished',{'reason':f'Web worker {index} prepared {len(result)} candidates.'})
-            return result
+            return [] if published else result
         except Exception as exc:
             worker.event(self.run_id,"web_worker_canceled",{"reason":f"Web worker {index} stopped."})
             if not worker.stop.is_set():
@@ -56,8 +63,13 @@ class WebPool:
         self.futures=[self.executor.submit(self.worker,i+1,{**plan,'queries':queries[i::2] or queries,
             'prompt':plan['prompt']+f'\nSearch lane {i+1}: '+('use the most direct official directory matches.' if i==0 else 'seek alternative qualifying companies and less obvious matches.')}) for i in range(2)]
         pending=set(self.futures)
-        while pending:
+        while pending or not self.ready.empty():
             self.guard()
+            try:
+                yield self.ready.get_nowait()
+                continue
+            except queue.Empty:
+                pass
             done,pending=wait(pending,timeout=.3,return_when=FIRST_COMPLETED)
             for future in done:
                 self.guard()

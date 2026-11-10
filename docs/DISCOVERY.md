@@ -30,11 +30,18 @@ Example brief:
 Codex produces structured plans and evidence assessments through the official
 app-server using this workspace's stored login. Shell, browser, external app and
 action tools are disabled for model turns; only the controller navigates LinkedIn.
-Two web workers run hosted search and primary-source checks in parallel. Their
-completed shortlists feed one LinkedIn worker, which alone navigates the visible
+Two web workers run hosted search and primary-source checks in parallel. Each company’s candidates are handed off as soon as its primary evidence passes,
+while the web workers continue checking other companies. One LinkedIn worker alone navigates the visible
 browser and saves contacts. Shared source caching and durable profile reservations
-prevent duplicate work. Model notifications are routed by thread ID. No model
+prevent duplicate work. YC industry listings are rejected as company evidence.
+An unconfirmed profile redirect is recorded as missing evidence and skipped; the run
+continues without using the other profile’s content. Authentication and rate limits
+still stop the run. Model notifications are routed by thread ID. No model
 can click Connect or Send. Jev is optional; hosted web search uses Codex.
+
+When rechecks are enabled, one prior evidence failure is rechecked before each fresh
+web-search round, so the unresolved backlog cannot monopolize discovery. Explicit
+single-profile runs remain restricted to that profile.
 
 Each plan starts with at most 6 search queries. General runs keep expanding through pairs of parallel web searches, with
 1–10 proposed candidates, an optional 1–500 profile-visit cap (0 means no visit cap),

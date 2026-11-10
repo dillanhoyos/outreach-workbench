@@ -128,3 +128,9 @@ def test_yc_jobs_resolves_to_company_overview(monkeypatch):
     assert urls==[SOURCE]
     with pytest.raises(ValueError):web.fetch_source('https://example.org/companies/example/jobs')
     assert urls[-1]=='https://example.org/companies/example/jobs'
+
+
+def test_yc_industry_listing_is_not_company_evidence(monkeypatch):
+    monkeypatch.setattr(web,'public_address',lambda url:(_ for _ in ()).throw(AssertionError('Should reject before fetching')))
+    with pytest.raises(ValueError,match='individual company'):
+        web.fetch_source('https://www.ycombinator.com/companies/industry/cloud-computing')
