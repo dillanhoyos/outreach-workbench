@@ -353,6 +353,8 @@ def create_app(settings=None, provider=None):
             if not state['ready']:raise HTTPException(503,state['reason'])
             if not body.plan_id or not body.history_ack:
                 raise HTTPException(400,'Review a research plan and confirm your CRM history before starting.')
+            try:research.reviewed_plan(body.plan_id)
+            except ProviderError as exc:raise HTTPException(400,str(exc)) from None
             if research.browser is None:raise HTTPException(503,'Live browser provider is unavailable.')
             return job('discovery',lambda:research.run(body.plan_id,body.history_ack))
         def work():

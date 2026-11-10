@@ -34,12 +34,13 @@ function controls() {
     : researchSubmitting ? 'Starting research…'
     : workspace.busy ? 'Wait for the current job to finish.'
     : !plan ? 'Prepare a research plan first.'
+    : researchState?.plan_needs_refresh ? 'Update this saved plan to review its locked audience criteria before starting.'
     : !workspace.discovery.ready ? workspace.discovery.reason || 'Complete the research connections first.'
     : changed ? 'Your brief or limits changed. Prepare an updated plan before starting.'
     : !$('research-history').checked ? 'Confirm the CRM history checkbox above to continue.' : '';
   // Only local prerequisites disable submission. Server checks current auth,
   // account, restrictions and job ownership and returns the precise failure.
-  $('research-start').disabled = !connected || researchSubmitting || workspace.busy || changed || !plan || !$('research-history').checked;
+  $('research-start').disabled = !connected || researchSubmitting || workspace.busy || changed || !plan || researchState?.plan_needs_refresh || !$('research-history').checked;
   $('research-start').textContent = plan ? 'Start reviewed plan (' + plan.limit + ')' : 'Start research';
   $('research-start-help').textContent = blocked || 'Ready. Start research will browse profiles and save candidates to your local CRM.';
   $('research-start-browser').hidden = !connected || workspace.mode !== 'live';
@@ -398,7 +399,8 @@ function renderResearchScreen(){
   const running=Boolean(researchState?.active || job?.status==='running' || researchSubmitting);
   const key=(plan?.id || 'none')+':'+(job?.id || '')+':'+(job?.status || '')+':'+running;
   if(key!==researchViewKey){researchViewOverride=null;researchViewKey=key;}
-  const phase=running?'running':researchViewOverride || (job?'results':plan?'review':'edit');
+  const needsRefresh=Boolean(researchState?.plan_needs_refresh);
+  const phase=running?'running':needsRefresh?'edit':researchViewOverride || (job?'results':plan?'review':'edit');
   $('discovery').dataset.phase=phase;
   const titles={edit:['Define audience','Who do you want to meet?','Describe your ideal contact, or refine the brief with the agent.'],review:['Review plan','Ready to search','Review the criteria and limits, then start your search.'],running:['Research in progress','Finding your next conversations','Watch the decisions below and LinkedIn in the private browser.'],results:['Run complete','Review your research results','Saved candidates are in your CRM. Review the outcome or adjust your next run.']};
   if(phase==='results' && job?.status!=='completed')titles.results=['Run stopped','Research needs attention','Review the reason below. Saved contacts remain in your CRM.'];
@@ -406,6 +408,7 @@ function renderResearchScreen(){
     const result=JSON.parse(job.result || '{}');
     if(result.reason && !['target_reached','search_exhausted','visit_limit'].includes(result.reason))titles.results[0]='Run stopped';
   }
+  if(needsRefresh && !running)titles.edit=['Update saved plan','Your research plan needs an update','Your saved brief and limits are below. Update the plan, review its locked criteria, then start. Your CRM and connections are preserved.'];
   const [label,title,intro]=titles[phase];
   $('research-phase').textContent=label;$('research-title').textContent=title;$('research-intro').textContent=intro;
   for(const id of ['research-brief','planning-conversation']){$(id).hidden=phase!=='edit';$(id).open=true;}
@@ -415,11 +418,14 @@ function renderResearchScreen(){
   $('research-review-again').disabled=workspace.busy;
   $('research-run-summary').hidden=!['running','results'].includes(phase) || (running && Boolean(researchState?.activity));
   $('research-run-summary').textContent=running?'Research is running. Follow the live activity below.':job?researchLaunchMessage(job):'';
-  $('research-decisions').hidden=!['running','results'].includes(phase) || !researchState?.events?.length;
+  const jobRun=job ? JSON.parse(job.result || '{}').run_id : null;
+  const matchingActivity=!job || (jobRun && jobRun===researchState?.activity?.run_id) || (running && researchState?.active);
+  $('research-decisions').hidden=!['running','results'].includes(phase) || !researchState?.events?.length || !matchingActivity;
   $('research-decisions').open=true;
   $('research-stop').hidden=!running;
   $('research-adjust-time').hidden=phase!=='review';
   $('discover').hidden=phase!=='edit';
+  $('discover').textContent=needsRefresh?'Update research plan':'Prepare research plan';
   $('discovery-state').hidden=phase!=='edit';
   $('research-launch-status').hidden=Boolean(researchLatestJob) && !researchSubmitting && !$('research-launch-status').textContent.startsWith('Research could not start:');
 }

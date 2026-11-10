@@ -191,7 +191,9 @@ class Discovery:
             activity={'run_id':run_id,'started_at':rows[0]['created'],'last_event_at':rows[-1]['created'],
                 'event_count':len(rows),'saved':sum(r['kind']=='staged_for_review' for r in rows),
                 'visited':sum(r['kind']=='visiting' for r in rows),'lanes':lanes}
-        return {'activity':activity,'server_time':now(),'plan':self.store.setting('research_plan'),'report':self.store.setting('research_report'),
+        plan=self.store.setting('research_plan')
+        needs_refresh=bool(plan) and not valid(plan.get('audience'),plan.get('prompt',''))
+        return {'activity':activity,'server_time':now(),'plan':plan,'plan_needs_refresh':needs_refresh,'report':self.store.setting('research_report'),
                 'events':events,'active':bool(self.store.setting('research_active')),
                 'conversation':self.store.setting('research_conversation') or {'messages':[],'brief':'','revision':''}}
 
@@ -490,11 +492,16 @@ class Discovery:
                 if not remaining():return
 
 
-    def run(self, plan_id, history_ack):
+    def reviewed_plan(self,plan_id):
         plan=self.store.setting('research_plan')
-        if not plan or plan['id']!=plan_id: raise ProviderError('Prepare a new research plan first.')
+        if not plan or plan['id']!=plan_id:raise ProviderError('Prepare a new research plan first.')
+        if not valid(plan.get('audience'),plan['prompt']):
+            raise ProviderError('This saved plan needs updated locked audience criteria. Choose Update research plan, review the checklist, then start. Your brief and CRM are preserved.')
+        return plan
+
+    def run(self, plan_id, history_ack):
+        plan=self.reviewed_plan(plan_id)
         if not history_ack: raise ProviderError('Confirm the local CRM contains your prior contacts/replies, or this is a new campaign.')
-        if not valid(plan.get('audience'),plan['prompt']):raise ProviderError('Prepare a new plan with locked audience criteria before research.')
         plan=json.loads(json.dumps({**plan,'web_first':True}))
         self._locked_audience=plan['audience']
         self._recommended=[];self._recommendation_seen=set()

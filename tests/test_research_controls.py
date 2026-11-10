@@ -71,3 +71,31 @@ assert.match(researchLaunchMessage({status:'interrupted',result:'{}'}), /Researc
 assert.match(researchLaunchMessage({status:'running',result:'{}'}), /Research is running/);
 '''
     subprocess.run(['node', '-e', code], check=True, capture_output=True, text=True)
+
+
+def test_legacy_plan_has_visible_recovery_and_no_old_run_activity():
+    script=Path('src/workbench/static/workbench.js').read_text()
+    screen=script[script.index('function renderResearchScreen()'):script.index("$('research-edit').onclick")]
+    code="""const assert=require('node:assert/strict');
+const nodes={};const $=id=>nodes[id]??={dataset:{},textContent:'',hidden:false};
+let workspace={mode:'live',busy:false};
+let researchState={plan:{id:'old-plan',created:'2026-11-10T10:00:00Z',prompt:'2026 sandbox founders'},
+  plan_needs_refresh:true,active:false,events:[{run_id:'earlier-run'}],activity:{run_id:'earlier-run'}};
+let researchLatestJob={id:'failed-start',created:'2026-11-10T11:00:00Z',status:'failed',result:'{}'};
+let researchSubmitting=false,researchViewKey=null,researchViewOverride=null;
+function researchLaunchMessage(){return 'Could not start';}
+"""+screen+"""
+renderResearchScreen();
+assert.equal($('discovery').dataset.phase,'edit');
+assert.equal($('discover').hidden,false);
+assert.equal($('discover').textContent,'Update research plan');
+assert.equal($('research-brief').hidden,false);
+assert.equal($('research-decisions').hidden,true);
+assert.match($('research-intro').textContent,/preserved/);
+assert.equal(researchState.plan.prompt,'2026 sandbox founders');
+researchState.plan_needs_refresh=false;renderResearchScreen();
+assert.equal($('research-decisions').hidden,true); // failed launch has no run id
+researchLatestJob={...researchLatestJob,status:'completed',result:'{"run_id":"earlier-run"}'};
+renderResearchScreen();assert.equal($('research-decisions').hidden,false);
+"""
+    subprocess.run(['node','-e',code],check=True,capture_output=True,text=True)

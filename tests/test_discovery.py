@@ -54,6 +54,17 @@ def test_research_starts_without_manual_identity_verification(tmp_path,monkeypat
         assert api.get('/api/status').json()['account'] is None
         assert api.get('/api/status').json()['discovery']['ready']
         plan=api.get('/api/discovery/state').json()['plan']
+        store=api.app.state.store
+        legacy={k:v for k,v in plan.items() if k!='audience'}
+        store.setting('research_plan',legacy)
+        before=api.get('/api/records/jobs').json()
+        assert api.get('/api/discovery/state').json()['plan_needs_refresh'] is True
+        blocked=api.post('/api/discover',json={'prompt':plan['prompt'],'plan_id':plan['id'],'history_ack':True})
+        assert blocked.status_code==400 and 'Update research plan' in blocked.json()['detail']
+        assert api.get('/api/records/jobs').json()==before
+        assert store.setting('research_plan')['prompt']==plan['prompt']
+        store.setting('research_plan',plan)
+        assert api.get('/api/discovery/state').json()['plan_needs_refresh'] is False
         response=api.post('/api/discover',json={'prompt':plan['prompt'],'limit':1,'plan_id':plan['id'],'history_ack':True})
         assert response.status_code==200
         wait(api)
