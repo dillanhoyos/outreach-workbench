@@ -408,6 +408,19 @@ def create_app(settings=None, provider=None):
     def save_note(ident:str,body:ComposeRequest):
         with connection_idle():return composer.save(ident,body.note,body.instructions,body.campaign_id)
 
+    @app.post('/api/crm/{ident}/profile',dependencies=[Depends(auth)])
+    def crm_profile(ident:str):
+        record=next((r for r in research.crm_records() if r['id']==ident),None)
+        if not record:raise HTTPException(404,'CRM contact not found.')
+        from .store import profile_key
+        profile_key(record['url'])
+        if settings.mode!='live':return {'message':'Demo contact: no LinkedIn navigation was performed.'}
+        if not research.browser:raise HTTPException(503,'Private browser is unavailable.')
+        def open_profile():
+            research.browser.profile(record['url'])
+            return {'message':'Profile opened in your private browser.'}
+        return job('crm-profile',open_profile)
+
     @app.post('/api/leads/{ident}/preview',dependencies=[Depends(auth)])
     def preview_recipient(ident:str):
         if settings.mode!='live':return {'message':'Demo profile is fictional; no browser visit needed.'}

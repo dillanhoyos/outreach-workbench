@@ -1,6 +1,7 @@
 'use strict';
 let token = '', workspace = null, browserState = null, refreshing = false, browserChecking = false, connectionBusy = false, connections = null, researchState = null, researchJobId = null, researchSubmitting = false, researchRestored = false, researchSeenJobId = null, briefSubmitting = false, briefRevision = null, briefJobId = null, decisionRevision = null;
 const $ = id => document.getElementById(id);
+let researchViewOverride=null,researchViewKey=null,researchLatestJob=null;
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(path, body, method) {
   const response = await fetch('/api/' + path, {
@@ -33,11 +34,11 @@ function controls() {
     : workspace.busy ? 'Wait for the current job to finish.'
     : !plan ? 'Prepare a research plan first.'
     : !workspace.discovery.ready ? workspace.discovery.reason || 'Complete the research connections first.'
-    : changed ? 'This button runs the reviewed plan shown above. Your edited form is different; prepare a new plan to use those edits.'
+    : changed ? 'Your brief or limits changed. Prepare an updated plan before starting.'
     : !$('research-history').checked ? 'Confirm the CRM history checkbox above to continue.' : '';
   // Only local prerequisites disable submission. Server checks current auth,
   // account, restrictions and job ownership and returns the precise failure.
-  $('research-start').disabled = !connected || researchSubmitting || !plan || !$('research-history').checked;
+  $('research-start').disabled = !connected || researchSubmitting || workspace.busy || changed || !plan || !$('research-history').checked;
   $('research-start').textContent = plan ? 'Start reviewed plan (' + plan.limit + ')' : 'Start research';
   $('research-start-help').textContent = blocked || 'Ready. Start research will browse profiles and save candidates to your local CRM.';
   $('research-start-browser').hidden = !connected || workspace.mode !== 'live';
@@ -51,6 +52,7 @@ function controls() {
   $('login').disabled = !idle || workspace.mode !== 'live' || !browserState?.available || Boolean(workspace.linkedin_restriction);
   $('reset-browser').disabled = !idle || workspace.mode !== 'live';
   for (const id of ['codex-login', 'codex-key-save', 'codex-check', 'codex-logout', 'codex-cancel', 'jev-save', 'jev-check', 'jev-disconnect', 'google-login', 'google-disconnect', 'google-create', 'google-select']) $(id).disabled = !idle || connectionBusy;
+  renderResearchScreen();
   if (idle && !connectionBusy && connections) {
     $('codex-login').disabled = !connections.codex.available || connections.codex.signed_in || Boolean(connections.codex.pending);
     $('codex-key-save').disabled = !connections.codex.available || connections.codex.signed_in || Boolean(connections.codex.pending);
@@ -85,6 +87,7 @@ async function refresh() {
     $('research-browser-help').hidden = status.mode !== 'live';
     if (status.mode === 'live' && status.discovery.plan_ready && !status.discovery.ready) $('discovery-state').textContent = 'You can prepare your plan now. ' + status.discovery.reason;
     const latestResearch = jobs.filter(job => job.kind === 'discovery').sort((a,b) => b.created.localeCompare(a.created))[0];
+    researchLatestJob=latestResearch || null;
     if (!researchRestored || (latestResearch && latestResearch.id !== researchSeenJobId)) {
       researchJobId = latestResearch?.id || null;
       researchSeenJobId = researchJobId;
@@ -241,7 +244,7 @@ $('discovery-prompt').oninput = controls;
 $('discovery-limit').oninput = controls;
 $('discovery-minutes').oninput = controls;
 $('discovery-visits').oninput = controls;
-$('research-adjust-time').onclick = () => { $('research-brief').open=true; $('research-options').open=true; $('discovery-minutes').focus(); $('discovery-minutes').scrollIntoView({block:'center',behavior:'smooth'}); };
+$('research-adjust-time').onclick = () => { researchViewOverride='edit';renderResearchScreen(); $('research-brief').open=true; $('research-options').open=true; $('discovery-minutes').focus(); $('discovery-minutes').scrollIntoView({block:'center',behavior:'smooth'}); };
 $('research-start').onclick = () => run(async () => {
   const plan=researchState?.plan;
   if (!plan) throw Error('Prepare a research plan first.');
@@ -278,7 +281,7 @@ $('research-use-plan').onclick = () => { if (!researchState?.plan) return; $('di
 // Navigate between focused screens without recreating the browser or form state.
 let composerRestored=false;
 let composeLead=null,composeState=null,composeBusy=false,composeJob=null;
-let activeMode='discovery';
+let activeMode='discovery',crmBrowserVisible=false,crmProfileBusy=false;
 const workspaceViews=['discovery','compose','browser-section','connections','outreach','activity'];
 $('research-workspace').append($('composer'));
 $('connections').append($('browser-help'));
@@ -286,11 +289,14 @@ for(const id of ['connections','outreach','activity'])$('research-workspace').ap
 function showView(id) {
   const selected=workspaceViews.includes(id)?id:'discovery';
   if(selected==='discovery' || selected==='compose')activeMode=selected;
+  if(selected!=='outreach')crmBrowserVisible=false;
   const panel=['connections','outreach','activity'].includes(selected)?selected:null;
   if(workspace && window.location.hash!=='#'+selected)history.replaceState(null,'','#'+selected);
   $('research-workspace').hidden=!workspace;
   $('research-workspace').classList.add('watching');
-  $('browser-section').hidden=!workspace;
+  $('browser-section').hidden=!workspace || (panel==='outreach' && !crmBrowserVisible);
+  $('research-workspace').classList.toggle('crm-wide',panel==='outreach' && !crmBrowserVisible);
+  $('crm-hide-browser').hidden=panel!=='outreach' || !crmBrowserVisible;
   $('discovery').hidden=!workspace || activeMode!=='discovery' || Boolean(panel);
   $('composer').hidden=!workspace || activeMode!=='compose' || !composeLead || Boolean(panel);
   $('outreach-start').hidden=!workspace || activeMode!=='compose' || Boolean(composeLead) || Boolean(panel);
@@ -306,6 +312,35 @@ function showView(id) {
   });
 }
 $('close-panel').onclick=()=>showView(activeMode);
+$('crm-hide-browser').onclick=()=>{crmBrowserVisible=false;showView('outreach');};
+async function openCrmProfile(lead){
+  if(crmProfileBusy || workspace.busy)return;
+  crmProfileBusy=true;crmBrowserVisible=true;showView('outreach');
+  $('crm-profile-status').textContent='Opening '+lead.name+' in your private browser…';
+  renderCrm(crmRecords,workspace);
+  try {
+    const result=await api('crm/'+encodeURIComponent(lead.id)+'/profile',{});
+    if(result.job_id){
+      workspace.busy=true;controls();
+      await browserProfileResult(result.job_id);
+      $('crm-profile-status').textContent=lead.name+' is open in the private browser.';
+    } else $('crm-profile-status').textContent=result.message;
+  } catch(e){$('crm-profile-status').textContent=e.message;throw e;}
+  finally{crmProfileBusy=false;await refresh();}
+}
+async function browserProfileResult(id){
+  const deadline=Date.now()+90000;
+  while(Date.now()<deadline){
+    const jobs=await api('records/jobs'),job=jobs.find(j=>j.id===id);
+    if(job && job.status!=='running'){
+      if(job.status!=='completed')throw Error(JSON.parse(job.result).message || 'Profile could not be opened.');
+      return;
+    }
+    await new Promise(resolve=>setTimeout(resolve,750));
+  }
+  throw Error('The browser is still working. Check History before trying again.');
+}
+
 function renderWorkspace() {
   $('access').hidden = Boolean(workspace);
   $('workspace-bar').hidden = !workspace;
@@ -344,9 +379,46 @@ function renderWorkspace() {
 window.addEventListener('hashchange', () => showView(window.location.hash.slice(1)));
 showView(window.location.hash.slice(1));
 
+
+// One current task surface; polling changes screens only when the plan/run changes.
+function renderResearchScreen(){
+  if(!workspace)return;
+  const plan=researchState?.plan;
+  const job=researchLatestJob && (!plan || researchLatestJob.created>=plan.created) ? researchLatestJob : null;
+  const running=Boolean(researchState?.active || job?.status==='running' || researchSubmitting);
+  const key=(plan?.id || 'none')+':'+(job?.id || '')+':'+(job?.status || '')+':'+running;
+  if(key!==researchViewKey){researchViewOverride=null;researchViewKey=key;}
+  const phase=running?'running':researchViewOverride || (job?'results':plan?'review':'edit');
+  $('discovery').dataset.phase=phase;
+  const titles={edit:['Define audience','Who do you want to meet?','Describe your ideal contact, or refine the brief with the agent.'],review:['Review plan','Ready to search','Review the criteria and limits, then start your search.'],running:['Research in progress','Finding your next conversations','Watch the decisions below and LinkedIn in the private browser.'],results:['Run complete','Review your research results','Saved candidates are in your CRM. Review the outcome or adjust your next run.']};
+  if(phase==='results' && job?.status!=='completed')titles.results=['Run stopped','Research needs attention','Review the reason below. Saved contacts remain in your CRM.'];
+  if(phase==='results' && job?.status==='completed'){
+    const result=JSON.parse(job.result || '{}');
+    if(result.reason && !['target_reached','search_exhausted','visit_limit'].includes(result.reason))titles.results[0]='Run stopped';
+  }
+  const [label,title,intro]=titles[phase];
+  $('research-phase').textContent=label;$('research-title').textContent=title;$('research-intro').textContent=intro;
+  for(const id of ['research-brief','planning-conversation']){$(id).hidden=phase!=='edit';$(id).open=true;}
+  $('research-plan').hidden=phase!=='review' || workspace.mode!=='live';
+  $('research-edit').hidden=phase==='edit' || running;$('research-edit').disabled=workspace.busy;
+  $('research-review-again').hidden=phase!=='results' || !plan;
+  $('research-review-again').disabled=workspace.busy;
+  $('research-run-summary').hidden=!['running','results'].includes(phase);
+  $('research-run-summary').textContent=job?researchLaunchMessage(job):running?'Starting research…':'';
+  $('research-decisions').hidden=!['running','results'].includes(phase) || !researchState?.events?.length;
+  $('research-decisions').open=true;
+  $('research-stop').hidden=!running;
+  $('research-adjust-time').hidden=phase!=='review';
+  $('discover').hidden=phase!=='edit';
+  $('discovery-state').hidden=phase!=='edit';
+  $('research-launch-status').hidden=Boolean(job) && !researchSubmitting;
+}
+$('research-edit').onclick=()=>{researchViewOverride='edit';renderResearchScreen();$('discovery-prompt').focus();};
+$('research-review-again').onclick=()=>{researchViewOverride='review';$('research-history').checked=false;controls();};
+
 function researchLaunchMessage(job) {
   const result = JSON.parse(job.result || '{}');
-  if (job.status === 'running') return 'Research is running. Open Research activity for progress or Browser to watch.';
+  if (job.status === 'running') return 'Research is running. Decisions appear below; LinkedIn activity is visible beside this panel.';
   if (job.status !== 'completed') return 'Research stopped: ' + (result.message || job.status);
   const normal = ['target_reached', 'search_exhausted', 'visit_limit'];
   const stopped = result.reason && !normal.includes(result.reason);
@@ -507,7 +579,9 @@ function renderCrm(leads,status) {
       button.disabled = !lead.person_id && String(lead.id).startsWith('visited:');
       if(String(lead.id).startsWith('visited:'))button.disabled=true;
       button.onclick = () => run(()=>openComposer(lead));
-      const a = document.createElement('a'); a.href = lead.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Profile ↗'; td.append(button, a); tr.append(td); $('leads').append(tr);
+      const a=document.createElement('button');a.className='secondary crm-profile';a.textContent='Open profile';
+      a.disabled=Boolean(workspace.busy || crmProfileBusy);a.onclick=()=>run(()=>openCrmProfile(lead));
+      td.append(button,a);tr.append(td);$('leads').append(tr);
     }
 
 }

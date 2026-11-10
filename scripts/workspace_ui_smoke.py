@@ -19,8 +19,15 @@ async def main():
   await page.locator('#browser-frame').evaluate('(e)=>e.dataset.sessionMarker="preserved"')
   for mode in ['discovery','compose','connections','activity','outreach']:
    await page.click('nav a[href="#'+mode+'"]')
-   assert await page.locator('#browser-section').is_visible()
+   assert await page.locator('#browser-section').is_visible() == (mode!='outreach')
    assert await page.locator('#browser-frame').get_attribute('data-session-marker')=='preserved'
+  assert await page.locator('#research-workspace').evaluate('(e)=>e.classList.contains("crm-wide")')
+  await page.locator('#leads .crm-profile').first.click()
+  await page.wait_for_function("document.querySelector('#crm-profile-status').textContent.includes('Demo contact')")
+  assert await page.locator('#browser-section').is_visible()
+  assert await page.locator('#browser-frame').get_attribute('data-session-marker')=='preserved'
+  await page.click('#crm-hide-browser')
+  assert not await page.locator('#browser-section').is_visible()
   await page.click('#close-panel')
   await page.click('nav a[href="#compose"]')
   await page.fill('#compose-instructions','English, friendly, ask to exchange ideas about finance operations. No product claims.')
@@ -101,6 +108,24 @@ async def main():
   await page.set_viewport_size({'width':390,'height':844});await page.screenshot(path='/tmp/outreach-composer-mobile.png',full_page=True)
   assert await page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
   assert await page.locator('nav a[href="#inbox"]').count()==0
+  await page.evaluate('''() => {
+    workspace.mode='live';workspace.busy=false;workspace.discovery.ready=true;
+    researchState={plan:{id:'state-test',created:'2026-01-01',prompt:'Founders',limit:3,max_minutes:15,max_profiles:0},active:false,events:[]};
+    researchLatestJob=null;researchViewKey=null;renderResearchScreen();
+    if(document.querySelector('#discovery').dataset.phase!=='review')throw Error('Expected review');
+    document.querySelector('#research-edit').click();renderResearchScreen();
+    if(document.querySelector('#research-brief').hidden)throw Error('Polling lost edit state');
+    researchLatestJob={id:'run-test',created:'2026-01-02',status:'running',result:'{}'};
+    researchState.active=true;renderResearchScreen();
+    if(document.querySelector('#discovery').dataset.phase!=='running' || !document.querySelector('#research-plan').hidden)throw Error('Expected focused running screen');
+    researchState.active=false;researchLatestJob.status='completed';researchLatestJob.result=JSON.stringify({staged:4,reason:'Codex research step timed out. No automatic retry.'});renderResearchScreen();
+    if(document.querySelector('#research-phase').textContent!=='Run stopped')throw Error('Stopped run mislabeled');
+    if(!document.querySelector('#research-run-summary').textContent.includes('4 candidates saved'))throw Error('Lost results');
+    document.querySelector('#research-review-again').click();
+    if(document.querySelector('#research-plan').hidden)throw Error('Cannot review next run');
+    researchState.plan={...researchState.plan,id:'new-plan',created:'2026-01-03'};researchViewOverride='edit';renderResearchScreen();
+    if(document.querySelector('#discovery').dataset.phase!=='review')throw Error('Old run replaced new plan');
+  }''')
   assert not errors,errors
   print('PASS: research → CRM → draft → approve → simulated send → history; iframe retained across modes; refresh recovery; eligibility filters; filtered select-all; batch review/edit/reload/send; header navigation; desktop/mobile; no JS errors')
   await b.close()

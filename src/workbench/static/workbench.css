@@ -208,3 +208,16 @@ td button{font-size:11px;padding:7px 10px}td a{margin-left:8px}
 #google-column-mapping { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: .75rem; }
 #google-import select { width: 100%; }
 #google-tab-step, #google-map-step, #google-preview-step { margin-block: 1rem; }
+
+#research-workspace.crm-wide{grid-template-columns:minmax(0,1fr)}
+#research-workspace.crm-wide #outreach{grid-column:1 / -1}
+#leads .crm-profile{margin-top:6px}
+
+/* Research is a task screen, not a stack of collapsed steps. */
+#research-brief>summary,#planning-conversation>summary,#research-decisions>summary{display:none}
+#research-run-summary:not(:empty){padding:16px;background:var(--surface,#f4f8f5);border:1px solid var(--line);border-radius:12px;margin:16px 0;white-space:pre-line}
+#discovery[data-phase="running"] .research-maintenance,#discovery[data-phase="edit"] .research-maintenance{display:none}
+#discovery[data-phase="running"] .research-method,#discovery[data-phase="results"] .research-method{display:none}
+#research-edit{white-space:nowrap}
+#research-decisions{margin-top:18px}
+#research-title{margin-top:12px}
