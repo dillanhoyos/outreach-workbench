@@ -51,6 +51,7 @@ function controls() {
   $('check-browser').disabled = !connected || browserChecking;
   $('open-browser').disabled = !browserState?.available;
   $('login').disabled = !idle || workspace.mode !== 'live' || !browserState?.available || Boolean(workspace.linkedin_restriction);
+  $('restart-browser').disabled = !idle || workspace.mode !== 'live' || browserChecking;
   $('reset-browser').disabled = !idle || workspace.mode !== 'live';
   for (const id of ['codex-login', 'codex-key-save', 'codex-check', 'codex-logout', 'codex-cancel', 'jev-save', 'jev-check', 'jev-disconnect', 'google-login', 'google-disconnect', 'google-create', 'google-select']) $(id).disabled = !idle || connectionBusy;
   renderReader();
@@ -199,6 +200,11 @@ $('expand-browser').onclick = () => run(async () => { await $('browser-stage').r
 $('check-browser').onclick = () => run(checkBrowser);
 $('open-browser').onclick = () => run(async () => { await checkBrowser(); openViewer(); });
 $('login').onclick = () => run(async () => { await checkBrowser(); openViewer(); await browserJob('linkedin/login', {}, 'Opening LinkedIn in your browser…', 'LinkedIn is open below. Sign in and complete any LinkedIn prompts, then return to Research.'); });
+$('restart-browser').onclick = () => run(async () => {
+  await browserJob('linkedin/restart', {}, 'Restarting your browser…', 'Browser restarted. Saved cookies are preserved; sign in if LinkedIn asks.');
+  $('browser-frame').removeAttribute('src');
+  await checkBrowser();
+});
 $('reset-browser').onclick = () => run(async () => { if (!confirm('Restart the browser container first. Reset its saved connection now? Cookies are preserved and invitations will not be retried.')) return; await browserJob('linkedin/reset', {}, 'Resetting the browser connection…', 'Connection reset. Open LinkedIn sign-in again.'); });
 $('discover').onclick = () => run(async () => { const prompt = $('discovery-prompt').value.trim(); if (prompt.length < 2) throw Error('Describe the people you want to research first.'); const limit = Number($('discovery-limit').value); if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw Error('Choose a target between 1 and 10.'); const max_profiles=Number($('discovery-visits').value); if (!Number.isInteger(max_profiles) || max_profiles < 0 || max_profiles > 500) throw Error('Choose a visit limit from 1 to 500, or 0 for time only.'); const max_minutes=Number($('discovery-minutes').value); if (!Number.isInteger(max_minutes) || max_minutes < 1 || max_minutes > 60) throw Error('Choose a time limit from 1 to 60 minutes.'); $('research-history').checked=false; await api(workspace.mode === 'demo' ? 'discover' : 'discovery/plan', { prompt, limit, max_minutes, max_profiles, web_first:true,recheck_failed:$('discovery-recheck').checked,profile_url:$('discovery-profile').value.trim() }); await refresh(); });
 

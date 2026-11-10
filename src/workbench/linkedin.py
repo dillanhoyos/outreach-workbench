@@ -92,6 +92,29 @@ class LinkedInBrowser:
         self.store.setting('browser_session',False)
         return {'message':'Connection metadata cleared. Start login again after restarting the browser container. Saved profile cookies were preserved.'}
 
+    def restart(self):
+        # End only this workspace's Selenium session; its profile volume survives.
+        if self.driver is not None:
+            try:
+                self.driver.quit()
+            except InvalidSessionIdException:
+                pass
+        else:
+            saved=self.store.setting('browser_session')
+            if saved:
+                import httpx
+                from urllib.parse import quote
+                try:
+                    response=httpx.delete(self.settings.selenium_url.rstrip('/')+'/session/'+quote(saved['id'],safe=''),timeout=20)
+                    if response.status_code != 404:
+                        response.raise_for_status()
+                except httpx.HTTPError:
+                    raise ProviderError('Browser service could not restart the session. Check connection or restart the browser container in Setup & troubleshooting.') from None
+        self.driver=None
+        self.store.setting('browser_session',False)
+        self.browser().get('https://www.linkedin.com/feed/')
+        return {'message':'Browser restarted. Saved cookies were preserved; complete sign-in if LinkedIn requests it.'}
+
     def close_transport(self):
         if self.driver is not None:self.driver.command_executor.close()
 

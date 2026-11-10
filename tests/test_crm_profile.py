@@ -22,6 +22,7 @@ def test_profile_uses_private_browser_and_serializes_jobs(tmp_path,monkeypatch):
         try:
             assert started.wait(2)
             assert api.post('/api/crm/'+ident+'/profile').status_code==409
+            assert api.post('/api/linkedin/restart').status_code==409
         finally:release.set()
         for _ in range(50):
             jobs=app.state.store.list('jobs')

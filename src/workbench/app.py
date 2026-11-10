@@ -494,6 +494,9 @@ def create_app(settings=None, provider=None):
             raise HTTPException(503, 'Browser is unavailable. Run docker compose --profile live up --build -d --wait, then check again.')
         return job('linkedin-login',browser.start_login)
 
+    @app.post('/api/linkedin/restart',dependencies=[Depends(auth)])
+    def restart_browser():return job('linkedin-restart',lambda:linkedin().restart())
+
     @app.post('/api/linkedin/reset',dependencies=[Depends(auth)])
     def reset():return job('linkedin-reset',lambda:linkedin().reset_connection())
 
