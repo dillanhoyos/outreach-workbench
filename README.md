@@ -2,7 +2,9 @@
 
 A local-first, one-page workspace for researching prospects and sending reviewed
 connection invitations. Research and Outreach share a persistent live browser;
-CRM, History and Connections open from the left sidebar. Replies are outside the
+A compact header switches modes; CRM, History and Connections open in the task
+panel beside the browser. Outreach supports selecting multiple eligible contacts,
+reviewing personalized notes and sending a sequential batch. Replies are outside the
 current interface. Prompt-driven discovery uses Codex and a signed-in
 LinkedIn browser to propose source-backed candidates. A web UI and authenticated
 JSON API expose the same workflows.

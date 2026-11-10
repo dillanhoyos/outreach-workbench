@@ -38,7 +38,7 @@ def test_modes_keep_browser_mounted_and_sidebar_preserves_work():
     script=Path('src/workbench/static/workbench.js').read_text()
     navigation=script[script.index("let composerRestored="):script.index('function renderWorkspace()')]
     code="""const assert=require('node:assert/strict');
-const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft',append(){},classList:{add(){}}};
+const nodes={};const $=id=>nodes[id]??={hidden:false,value:'saved draft',append(){},prepend(){},classList:{add(){}}};
 let workspace=null;
 const window={location:{hash:''}};
 const history={replaceState:(_,__,hash)=>window.location.hash=hash};
@@ -49,10 +49,10 @@ showView('discovery');assert.equal($('research-workspace').hidden,true);
 workspace={mode:'live'};showView('discovery');
 assert.equal($('browser-section').hidden,false);assert.equal($('discovery').hidden,false);
 showView('connections');
-assert.equal($('connections').hidden,false);assert.equal($('discovery').hidden,false);assert.equal($('browser-section').hidden,false);
+assert.equal($('connections').hidden,false);assert.equal($('discovery').hidden,true);assert.equal($('browser-section').hidden,false);
 showView('compose');assert.equal($('outreach-start').hidden,false);assert.equal($('discovery').hidden,true);
 composeLead={id:'fixture'};showView('compose');assert.equal($('composer').hidden,false);
-showView('activity');assert.equal($('composer').hidden,false);assert.equal($('browser-section').hidden,false);
+showView('activity');assert.equal($('composer').hidden,true);assert.equal($('browser-section').hidden,false);
 showView('discovery');assert.equal($('discovery').value,'saved draft');
 assert.equal($('composer').hidden,true);
 """

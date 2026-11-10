@@ -1,7 +1,7 @@
 # Reviewed invitation workflow
 
-Switch to **Outreach**, describe the message and select an available CRM contact.
-Alternatively, open **CRM** in the sidebar and choose **Compose message**. The inline composer stays beside the live browser and keeps one
+Switch to **Outreach**, describe the message and select available CRM contacts.
+Alternatively, open **CRM** in the header and choose **Compose message**. The inline composer stays beside the live browser and keeps one
 recipient active and displays their company, role and campaign. Its recipient
 selector can switch to another saved contact. Archived profiles without a
 qualified contact record cannot be sent invitations.
@@ -67,3 +67,22 @@ Saved drafts and job records survive restarts. Mode switching retains the same
 iframe and form nodes; local research inputs and the last selected recipient are
 restored after a tab refresh and workspace unlock. Workspace credentials are
 never placed in browser storage.
+
+## Selecting and sending a batch
+
+The Outreach list contains only contacts the CRM currently considers available.
+Search by person, company or role. **Select all shown** selects the filtered list,
+up to 100 recipients; clearing the filter preserves selections. The count shows
+the actual batch size.
+
+**Generate messages** creates a separate evidence-based draft for each selected
+contact. Review and edit each note, then check the explicit confirmation and send
+the batch. Editing a note or changing selection clears that confirmation. Notes
+and selections survive a tab refresh; they never trigger sending automatically.
+
+Sending checks every approved note before the first action, then processes
+recipients sequentially in the visible browser. Limits, exclusions, blocked
+actions, rate restrictions and uncertain receipts stop the batch. Completed
+receipts remain visible; remaining contacts are not reported as sent. A stored
+job ID lets the UI resume observing an active batch after refresh without
+submitting another send.

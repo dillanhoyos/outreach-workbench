@@ -104,5 +104,6 @@ run `python scripts/workspace_ui_smoke.py`. Set
 The script starts its own temporary demo database and HTTP server and shuts them
 down afterward. It checks research-to-CRM, inline drafting, exact-note approval,
 simulated sending, persistent history, filtering, refresh recovery, desktop and
-mobile layout, and preserving the browser frame across modes and sidebar panels.
+mobile layout, header navigation without a sidebar, filtered select-all, editable batch notes,
+batch sending and preserving the browser frame across modes and utility panels.
 It never targets the live installation or sends real invitations.

@@ -112,6 +112,15 @@ async function refresh() {
     $('access-help').textContent = 'Workspace unlocked. Your password is held only in this tab’s memory.';
     crmReports=reports;crmRecords=leads;renderCrm(leads,status);
     renderHistory(history,jobs);renderRecipients();
+    if(!$('batch-drafts').children.length && batchSelected.size)renderBatchDrafts();
+    if(batchJobId && !batchBusy){
+      const recovered=jobs.find(j=>j.id===batchJobId);
+      if(recovered){
+        batchBusy=true;batchControls();
+        watchBatch(batchJobId).catch(e=>{$('batch-status').textContent=e.message;batchJobId=null;saveBatch();}).finally(()=>{batchBusy=false;batchControls();});
+      }
+    }
+
     const sending=leads.find(l=>l.outreach_status==='sending');
     if(sending){
       $('outreach-watch').hidden=false;$('outreach-watch-person').textContent='Invitation to '+sending.name;
@@ -123,7 +132,7 @@ async function refresh() {
       composerRestored=true;
       let saved;try{saved=sessionStorage.getItem('workbench-recipient');}catch(_){}
       const previous=leads.find(l=>l.id===saved);
-      if(previous && window.location.hash==='#compose')await openComposer(previous);
+      if(previous && window.location.hash==='#compose' && !batchSelected.size)await openComposer(previous);
     }
     $('crm-total').textContent=leads.length;
     $('jobs').textContent = jobs.length ? jobs.slice().reverse().map(j => j.kind + ' · ' + j.status + ' · ' + j.created + '\n' + j.result).join('\n\n') : 'No jobs yet.';
@@ -272,6 +281,7 @@ let activeMode='discovery';
 const workspaceViews=['discovery','compose','browser-section','connections','outreach','activity'];
 $('research-workspace').append($('composer'));
 $('connections').append($('browser-help'));
+for(const id of ['connections','outreach','activity'])$('research-workspace').append($(id));
 function showView(id) {
   const selected=workspaceViews.includes(id)?id:'discovery';
   if(selected==='discovery' || selected==='compose')activeMode=selected;
@@ -280,15 +290,16 @@ function showView(id) {
   $('research-workspace').hidden=!workspace;
   $('research-workspace').classList.add('watching');
   $('browser-section').hidden=!workspace;
-  $('discovery').hidden=!workspace || activeMode!=='discovery';
-  $('composer').hidden=!workspace || activeMode!=='compose' || !composeLead;
-  $('outreach-start').hidden=!workspace || activeMode!=='compose' || Boolean(composeLead);
+  $('discovery').hidden=!workspace || activeMode!=='discovery' || Boolean(panel);
+  $('composer').hidden=!workspace || activeMode!=='compose' || !composeLead || Boolean(panel);
+  $('outreach-start').hidden=!workspace || activeMode!=='compose' || Boolean(composeLead) || Boolean(panel);
   for(const view of ['connections','outreach','activity']) {
     $(view).hidden=!workspace || view!==panel;
-    $(view).classList.add('side-panel');
+    $(view).classList.add('utility-panel');
   }
   $('close-panel').hidden=!workspace || !panel;
-  document.querySelectorAll('.sidebar nav a').forEach(link=>{
+  if(panel)$(panel).prepend($('close-panel'));
+  document.querySelectorAll('.topbar nav a').forEach(link=>{
     if(link.hash==='#'+(panel || activeMode))link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   });
@@ -578,7 +589,7 @@ async function waitComposerJob(id){
     await new Promise(resolve=>setTimeout(resolve,1000));
   }
 }
-$('compose-close').onclick=()=>{composeLead=null;composeState=null;showView('compose');renderRecipients();};
+$('compose-close').onclick=()=>{try{sessionStorage.removeItem('workbench-recipient');}catch(_){}composeLead=null;composeState=null;showView('compose');renderRecipients();};
 $('compose-person').onchange=()=>run(()=>openComposer(crmRecords.find(p=>p.id===$('compose-person').value)));
 $('compose-note').oninput=()=>{$('compose-confirm').checked=false;composerControls();};
 $('compose-instructions').oninput=composerControls;
@@ -603,7 +614,7 @@ $('compose-send').onclick=()=>composerAction(async()=>{
   if(! $('compose-confirm').checked || composeState.lead.note!==note)throw Error('Approve and confirm this exact note first.');
   $('compose-status').textContent=workspace.mode==='demo'?'Simulating invitation…':'Sending one reviewed invitation. Watch the browser for the result.';
   const job=await api('outreach',{lead_ids:[id],confirm:true,expected_notes:{[id]:note}});
-  showView('compose');showView('compose');
+  showView('compose');
   $('outreach-watch').hidden=false;
   $('outreach-watch-person').textContent='Invitation to '+composeState.lead.name;
   $('outreach-watch-note').textContent=note;
@@ -619,7 +630,7 @@ $('compose-send').onclick=()=>composerAction(async()=>{
 });
 $('compose-preview').onclick=()=>composerAction(async()=>{
   const job=await api('leads/'+composeLead.id+'/preview',{});
-  if(job.job_id){showView('compose');showView('compose');await waitComposerJob(job.job_id);}
+  if(job.job_id){showView('compose');await waitComposerJob(job.job_id);}
   $('compose-status').textContent='Profile preview ready. Return to this draft when you finish reviewing.';
 });
 $('return-composer').onclick=()=>run(()=>openComposer(composeLead));
@@ -630,19 +641,124 @@ function crmMatches(lead,filter){
   if(['blocked','uncertain'].includes(filter))return lead.status===filter;
   return crmCategory(lead)===filter;
 }
-function renderRecipients(){
-  const select=$('outreach-person'),selected=select.value;
-  const available=crmRecords.filter(l=>crmMatches(l,'available'));
-  select.replaceChildren(...available.map(l=>new Option(l.name+' · '+l.company,l.id)));
-  if(available.some(l=>l.id===selected))select.value=selected;
-  $('outreach-availability').textContent=available.length+' contacts available for review. LinkedIn availability is checked before sending.';
-  $('outreach-choose').disabled=!available.length || Boolean(workspace?.busy);
+const batchSelected=new Set(),batchNotes=new Map();
+let batchBusy=false,recipientRevision='',batchJobId=null;
+try{
+  const saved=JSON.parse(sessionStorage.getItem('workbench-batch') || '{}');
+  for(const id of saved.selected || [])batchSelected.add(id);
+  for(const [id,note] of Object.entries(saved.notes || {}))batchNotes.set(id,note);
+  batchJobId=saved.job_id || null;
+}catch(_){}
+function saveBatch(){
+  try{sessionStorage.setItem('workbench-batch',JSON.stringify({selected:[...batchSelected],notes:Object.fromEntries(batchNotes),job_id:batchJobId}));}catch(_){}
 }
-$('outreach-choose').onclick=()=>run(async()=>{
-  const lead=crmRecords.find(l=>l.id===$('outreach-person').value);
-  await openComposer(lead);
-  if($('outreach-prompt').value.trim())$('compose-instructions').value=$('outreach-prompt').value;
-  composerControls();
+function selectedContacts(){return crmRecords.filter(l=>batchSelected.has(l.id) && l.outreach_available);}
+function matchingRecipients(){
+  const query=$('recipient-search').value.trim().toLocaleLowerCase();
+  return crmRecords.filter(l=>l.outreach_available && (l.name+' '+l.company+' '+l.role).toLocaleLowerCase().includes(query));
+}
+function batchControls(){
+  const selected=selectedContacts(),visible=matchingRecipients(),locked=batchBusy || Boolean(workspace?.busy);
+  const ready=selected.length>0 && selected.every(l=>{const note=batchNotes.get(l.id)?.trim();return note && note.length<=200;});
+  $('batch-count').textContent=selected.length+' selected';
+  $('batch-generate').disabled=locked || !selected.length || !$('outreach-prompt').value.trim();
+  $('batch-generate').textContent='Generate '+(selected.length || '')+' messages';
+  $('batch-send').disabled=locked || !ready || !$('batch-confirm').checked;
+  $('batch-send').textContent=(workspace?.mode==='demo'?'Simulate ':'Send ')+selected.length+' invitations';
+  $('batch-clear').disabled=locked || !batchSelected.size;
+  $('recipient-all').disabled=locked || !visible.length;
+  $('recipient-all').checked=visible.length>0 && visible.every(l=>batchSelected.has(l.id));
+  $('recipient-all').indeterminate=visible.some(l=>batchSelected.has(l.id)) && !$('recipient-all').checked;
+  $('batch-confirm').disabled=locked || !ready;
+  $('outreach-prompt').disabled=locked;
+  for(const input of $('recipient-list').querySelectorAll('input'))input.disabled=locked;
+  for(const input of $('batch-drafts').querySelectorAll('textarea'))input.disabled=locked;
+}
+function renderRecipients(){
+  const available=matchingRecipients();
+  const revision=JSON.stringify(available.map(l=>[l.id,l.name,l.company,l.role]))+JSON.stringify([...batchSelected]);
+  if(revision!==recipientRevision){
+    recipientRevision=revision;const root=$('recipient-list');root.replaceChildren();
+    for(const lead of available){
+      const row=document.createElement('label');row.className='recipient-row';
+      const check=document.createElement('input');check.type='checkbox';check.checked=batchSelected.has(lead.id);check.dataset.leadId=lead.id;
+      check.onchange=()=>{if(check.checked && batchSelected.size>=100){check.checked=false;$('batch-status').textContent='Choose up to 100 recipients per batch.';return;}
+        check.checked?batchSelected.add(lead.id):batchSelected.delete(lead.id);$('batch-confirm').checked=false;saveBatch();renderRecipients();renderBatchDrafts();};
+      const info=document.createElement('span'),name=document.createElement('strong'),meta=document.createElement('small');
+      name.textContent=lead.name;meta.textContent=lead.role+' · '+lead.company;info.append(name,meta);row.append(check,info);root.append(row);
+    }
+    if(!available.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='No eligible contacts match. Research more people or review your CRM.';root.append(empty);}
+  }
+  $('outreach-availability').textContent=available.length+' eligible contacts shown · up to 100 per batch · sent one at a time.';
+  batchControls();
+}
+function renderBatchDrafts(){
+  const root=$('batch-drafts');root.replaceChildren();
+  const selected=selectedContacts();$('batch-review').hidden=!selected.some(l=>batchNotes.has(l.id));
+  for(const lead of selected){
+    const card=document.createElement('article');card.className='batch-draft';
+    const label=document.createElement('label');label.textContent=lead.name+' · '+lead.company;
+    const field=document.createElement('textarea');field.rows=3;field.value=batchNotes.get(lead.id) || '';field.id='batch-note-'+lead.id;label.htmlFor=field.id;
+    const count=document.createElement('small');count.textContent=field.value.length+' / 200';
+    field.oninput=()=>{batchNotes.set(lead.id,field.value);count.textContent=field.value.length+' / 200';$('batch-confirm').checked=false;saveBatch();batchControls();};
+    card.append(label,field,count);root.append(card);
+  }
+  batchControls();
+}
+$('recipient-search').oninput=renderRecipients;
+$('outreach-prompt').addEventListener('input',()=>{$('batch-confirm').checked=false;batchControls();});
+$('recipient-all').onchange=()=>{
+  const checked=$('recipient-all').checked;
+  for(const l of matchingRecipients()){if(checked && batchSelected.size<100)batchSelected.add(l.id);else if(!checked)batchSelected.delete(l.id);}
+  $('batch-confirm').checked=false;saveBatch();renderRecipients();renderBatchDrafts();
+};
+$('batch-clear').onclick=()=>{batchSelected.clear();$('batch-confirm').checked=false;saveBatch();renderRecipients();renderBatchDrafts();};
+$('batch-confirm').onchange=batchControls;
+async function batchAction(fn){
+  if(batchBusy || workspace?.busy)return;
+  batchBusy=true;batchControls();
+  try{await fn();}catch(e){$('batch-status').textContent=e.message;}finally{batchBusy=false;await refresh();batchControls();}
+}
+$('batch-generate').onclick=()=>batchAction(async()=>{
+  const selected=selectedContacts(),instructions=$('outreach-prompt').value.trim();
+  $('batch-confirm').checked=false;
+  for(const [index,lead] of selected.entries()){
+    $('batch-status').textContent='Drafting '+(index+1)+' of '+selected.length+' · '+lead.name;
+    const job=await api('leads/'+lead.id+'/draft',{instructions,campaign_id:lead.campaign_id});
+    await waitComposerJob(job.job_id);
+    const state=await api('leads/'+lead.id+'/composer');
+    batchNotes.set(lead.id,state.draft.note || state.draft.result.suggestions[0].note);saveBatch();renderBatchDrafts();
+  }
+  $('batch-status').textContent='Messages ready. Review or edit each note, then confirm the batch.';
+});
+async function watchBatch(id){
+  const job=await waitComposerJob(id),result=JSON.parse(job.result || '{}');
+  const root=$('batch-results');root.replaceChildren();
+  for(const receipt of result.results || []){
+    const lead=crmRecords.find(l=>l.id===receipt.lead_id),row=document.createElement('p');
+    row.textContent=(lead?.name || receipt.lead_id)+' · '+receipt.status+' · '+receipt.evidence;root.append(row);
+    batchSelected.delete(receipt.lead_id);
+  }
+  $('batch-status').textContent=(result.results?.length || 0)+' processed.'+(result.reason?' '+result.reason+'.':'')+(batchSelected.size?' Remaining contacts were not sent. Review any blocker before starting another batch.':' Batch finished.');
+  $('outreach-watch').hidden=false;
+  $('outreach-watch-person').textContent='Batch complete';
+  $('outreach-watch-note').textContent='';
+  $('outreach-watch-status').textContent=$('batch-status').textContent;
+  batchJobId=null;saveBatch();$('batch-confirm').checked=false;renderBatchDrafts();
+}
+$('batch-send').onclick=()=>batchAction(async()=>{
+  if(!$('batch-confirm').checked)throw Error('Review and confirm the exact messages first.');
+  const selected=selectedContacts();
+  if(!selected.length || selected.length>100)throw Error('Choose 1–100 available contacts.');
+  const notes=Object.fromEntries(selected.map(l=>[l.id,batchNotes.get(l.id)?.trim()]));
+  if(selected.some(l=>!notes[l.id] || notes[l.id].length>200))throw Error('Every selected contact needs a note of 1–200 characters.');
+  for(const lead of selected){
+    await api('leads/'+lead.id+'/draft/save',{note:notes[lead.id],instructions:$('outreach-prompt').value,campaign_id:lead.campaign_id});
+    await api('leads/'+lead.id+'/approve',{note:notes[lead.id],campaign_id:lead.campaign_id});
+  }
+  const job=await api('outreach',{lead_ids:selected.map(l=>l.id),confirm:true,expected_notes:notes});
+  batchJobId=job.job_id;saveBatch();$('batch-status').textContent='Sending reviewed invitations. Watch the live browser.';
+  await watchBatch(job.job_id);
 });
 function renderHistory(changes,jobs){
   const entries=changes.map(c=>({created:c.created,text:c.name+' · '+c.kind.replaceAll('_',' ')+' · '+(c.before_state || 'new')+' → '+c.after_state,detail:c.detail}));

@@ -37,7 +37,9 @@ def test_web_company_evidence_precedes_linkedin_and_persists(tmp_path,monkeypatc
         evidence=json.loads(lead['evidence'])
         assert evidence['company_url']==SOURCE
         assert evidence['company_criteria_quotes']==['Batch: Summer 2024.']
-        events=list(reversed(engine.state()['events']))
+        # Assert the full durable run, not the UI’s rolling 80-event window.
+        with store.db() as db:
+            events=[dict(row) for row in db.execute('SELECT * FROM research_events ORDER BY id')]
         kinds=[x['kind'] for x in events]
         assert kinds.index('web_source')<kinds.index('visiting')<kinds.index('staged_for_review')
 

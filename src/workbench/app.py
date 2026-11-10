@@ -391,13 +391,27 @@ def create_app(settings=None, provider=None):
         if body.expected_notes is not None and set(body.expected_notes)!=set(body.lead_ids):raise HTTPException(400,'Confirm the exact note for every selected recipient')
         def work():
             results=[]
+            # Reject stale reviewed text before sending any member of a batch.
+            if len(body.lead_ids)>1:
+                if body.expected_notes is None:raise ValueError('Review the exact note for every batch recipient')
+                for ident in body.lead_ids:
+                    candidate=store.get_lead(ident)
+                    if candidate['status']!='approved' or candidate['note']!=body.expected_notes[ident]:
+                        raise ValueError('A recipient or note changed. Review the batch again.')
             for ident in body.lead_ids:
-                lead=store.reserve(ident,settings.daily_limit,body.expected_notes.get(ident) if body.expected_notes is not None else None,body.retry_created)
+                try:
+                    lead=store.reserve(ident,settings.daily_limit,body.expected_notes.get(ident) if body.expected_notes is not None else None,body.retry_created)
+                except ValueError as exc:
+                    if len(body.lead_ids)==1:raise
+                    return {'results':results,'reason':str(exc),'stopped_before':ident}
                 try:
                     receipt=provider.send(lead)
                     if receipt['status'] not in ('confirmed','simulated','skipped','blocked','uncertain'):raise ValueError('Unknown receipt')
                 except Exception:
                     store.delivery(ident,'uncertain','Provider action did not return a conclusive receipt; no automatic retry.')
+                    if len(body.lead_ids)>1:
+                        results.append({'lead_id':ident,'status':'uncertain','evidence':'No conclusive provider receipt. Batch stopped without retry.'})
+                        return {'results':results,'reason':'Provider action did not return a conclusive receipt'}
                     raise
                 store.delivery(ident,receipt['status'],receipt['evidence'])
                 results.append({'lead_id':ident,**receipt})

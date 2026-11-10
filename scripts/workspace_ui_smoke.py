@@ -52,12 +52,42 @@ async def main():
   await page.select_option('#crm-filter','available')
   assert 'Demo Person 1' not in await page.locator('#leads').inner_text()
   await page.click('#close-panel')
+  await page.click('#compose-close')
+  await page.fill('#outreach-prompt','Friendly English invitation about finance operations')
+  await page.fill('#recipient-search','Person 2')
+  await page.check('#recipient-all')
+  assert await page.locator('#batch-count').inner_text()=='1 selected'
+  await page.fill('#recipient-search','')
+  assert await page.locator('#recipient-all').evaluate('(e)=>e.indeterminate')
+  await page.check('#recipient-all')
+  assert await page.locator('#batch-count').inner_text()=='2 selected'
+  assert 'Demo Person 1' not in await page.locator('#recipient-list').inner_text()
+  await page.click('#batch-generate')
+  await page.wait_for_function("document.querySelector('#batch-status').textContent.includes('Messages ready')")
+  assert await page.locator('#batch-drafts textarea').count()==2
+  assert await page.locator('#batch-send').is_disabled()
+  await page.check('#batch-confirm')
+  await page.locator('#batch-drafts textarea').first.fill('A changed note for review.')
+  assert await page.locator('#batch-send').is_disabled()
+  await page.reload();await page.fill('#token','x'*32);await page.click('#connect')
+  await page.wait_for_function("document.querySelector('#batch-drafts').children.length===2")
+  assert await page.locator('#batch-drafts textarea').first.input_value()=='A changed note for review.'
+  assert await page.locator('.sidebar').count()==0
+  assert await page.locator('.topbar nav').is_visible()
+  work=await page.locator('#outreach-start').bounding_box();browser=await page.locator('#browser-section').bounding_box()
+  assert work['x']<30 and abs(work['y']-browser['y'])<2 and browser['x']>work['x']+work['width']
+  await page.screenshot(path='/tmp/outreach-batch-desktop.png',full_page=True)
+  await page.check('#batch-confirm');await page.click('#batch-send')
+  await page.wait_for_function("document.querySelector('#batch-status').textContent.includes('Batch finished')")
+  assert await page.locator('#batch-results p').count()==2
+  assert await page.locator('#browser-section').is_visible()
+  assert await page.locator('#recipient-list input').count()==0
   await page.screenshot(path='/tmp/outreach-composer-desktop.png',full_page=True)
   await page.set_viewport_size({'width':390,'height':844});await page.screenshot(path='/tmp/outreach-composer-mobile.png',full_page=True)
   assert await page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
   assert await page.locator('nav a[href="#inbox"]').count()==0
   assert not errors,errors
-  print('PASS: research → CRM → draft → approve → simulated send → history; iframe retained across modes; refresh recovery; eligibility filters; desktop/mobile; no JS errors')
+  print('PASS: research → CRM → draft → approve → simulated send → history; iframe retained across modes; refresh recovery; eligibility filters; filtered select-all; batch review/edit/reload/send; header navigation; desktop/mobile; no JS errors')
   await b.close()
 
 with tempfile.TemporaryDirectory(prefix="workbench-ui-") as directory:

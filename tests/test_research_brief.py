@@ -74,7 +74,9 @@ def test_run_emits_observable_decisions_and_saved_quote(tmp_path):
     from test_research import setup,PERSON
     store,browser,engine,plan=setup(tmp_path)
     engine.run(plan['id'],True)
-    events=list(reversed(engine.state()['events']))
+    # Assert the full durable run, not the UI’s rolling 80-event window.
+    with store.db() as db:
+        events=[dict(row) for row in db.execute('SELECT * FROM research_events ORDER BY id')]
     kinds=[event['kind'] for event in events]
     assert kinds.index('checking_browser')<kinds.index('web_worker_started')<kinds.index('visiting')
     assert kinds.index('employer_selected')<kinds.index('qualifying')<kinds.index('staged_for_review')

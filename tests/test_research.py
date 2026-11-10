@@ -58,7 +58,10 @@ def test_fresh_company_reply_blocks_staging(tmp_path):
     engine.model=reply_during_assessment
     result=engine.run(plan['id'],True)
     assert result['staged']==0 and len(store.list('leads'))==1
-    assert any(e['kind']=='company_replied_or_held' for e in engine.state()['events'])
+    # The UI state intentionally returns only the latest 80 events. Fast later
+    # search rounds can evict this decision; verify its durable record instead.
+    with store.db() as db:
+        assert db.execute("SELECT 1 FROM research_events WHERE kind='company_replied_or_held'").fetchone()
 
 def test_interrupted_profile_stays_reserved_and_no_retry(tmp_path):
     store,browser,engine,plan=setup(tmp_path);browser.fail=True
