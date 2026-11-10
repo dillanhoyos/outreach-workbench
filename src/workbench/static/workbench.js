@@ -411,7 +411,7 @@ function renderResearchScreen(){
   $('research-adjust-time').hidden=phase!=='review';
   $('discover').hidden=phase!=='edit';
   $('discovery-state').hidden=phase!=='edit';
-  $('research-launch-status').hidden=Boolean(job) && !researchSubmitting;
+  $('research-launch-status').hidden=Boolean(researchLatestJob) && !researchSubmitting && !$('research-launch-status').textContent.startsWith('Research could not start:');
 }
 $('research-edit').onclick=()=>{researchViewOverride='edit';renderResearchScreen();$('discovery-prompt').focus();};
 $('research-review-again').onclick=()=>{researchViewOverride='review';$('research-history').checked=false;controls();};

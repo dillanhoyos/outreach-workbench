@@ -125,6 +125,7 @@ async def main():
     if(document.querySelector('#research-plan').hidden)throw Error('Cannot review next run');
     researchState.plan={...researchState.plan,id:'new-plan',created:'2026-01-03'};researchViewOverride='edit';renderResearchScreen();
     if(document.querySelector('#discovery').dataset.phase!=='review')throw Error('Old run replaced new plan');
+    if(!document.querySelector('#research-launch-status').hidden)throw Error('Old run status leaked into new plan');
   }''')
   assert not errors,errors
   print('PASS: research → CRM → draft → approve → simulated send → history; iframe retained across modes; refresh recovery; eligibility filters; filtered select-all; batch review/edit/reload/send; header navigation; desktop/mobile; no JS errors')
