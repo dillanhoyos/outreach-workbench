@@ -227,7 +227,7 @@ function renderConnections() {
     $('codex-device-code').textContent = c.pending.user_code;
   } else { $('codex-device-code').textContent = ''; $('codex-device-link').removeAttribute('href'); }
   $('jev-state').textContent = j.configured ? (j.checked_at ? 'Key checked' : 'Key configured · untested') : 'Not connected';
-  if (j.checked_at) $('jev-message').textContent = 'Last successful check: ' + j.checked_at + (j.advisor_enabled ? '. Browser assistance enabled.' : '. Browser assistance is off.');
+  if (j.checked_at) $('jev-message').textContent = 'Last successful check: ' + j.checked_at + '. Jev discovery extraction enabled.' + (j.advisor_enabled ? ' Invitation-button assistance enabled.' : ' Invitation-button assistance is off.');
 }
 async function connectionAction(path, body, method) {
   connectionBusy = true; controls();
