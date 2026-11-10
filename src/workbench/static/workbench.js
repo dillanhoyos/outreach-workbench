@@ -75,7 +75,7 @@ async function refresh() {
   refreshing = true;
   try {
     const [status, leads, history, jobs, authState, discoveryState, reports] = await Promise.all(['status', 'records/leads', 'crm/history', 'records/jobs', 'connections', 'discovery/state','crm/report'].map(p => api(p)));
-    connections = authState; researchState = discoveryState;
+    connections = authState; researchState = discoveryState; researchPollAt=Date.now();
     workspace = status;
     latestReaderJob=jobs.filter(j=>j.kind==='reader').sort((a,b)=>b.created.localeCompare(a.created))[0] || null;
     $('mode').textContent = status.mode === 'demo' ? 'Demo · fictional data' : 'Live workspace';
@@ -412,8 +412,8 @@ function renderResearchScreen(){
   $('research-edit').hidden=phase==='edit' || running;$('research-edit').disabled=workspace.busy;
   $('research-review-again').hidden=phase!=='results' || !plan;
   $('research-review-again').disabled=workspace.busy;
-  $('research-run-summary').hidden=!['running','results'].includes(phase);
-  $('research-run-summary').textContent=job?researchLaunchMessage(job):running?'Starting research…':'';
+  $('research-run-summary').hidden=!['running','results'].includes(phase) || (running && Boolean(researchState?.activity));
+  $('research-run-summary').textContent=running?'Research is running. Follow the live activity below.':job?researchLaunchMessage(job):'';
   $('research-decisions').hidden=!['running','results'].includes(phase) || !researchState?.events?.length;
   $('research-decisions').open=true;
   $('research-stop').hidden=!running;
@@ -490,35 +490,100 @@ function decisionSummary(event) {
   if(event.kind==='known_contact')text='This profile is already in your local CRM.';
   return {title:(d.worker ? 'Web '+d.worker+' · ' : '')+(names[event.kind] || event.kind).replaceAll('_',' '),text,query:d.query,url:d.url,quote:d.role_quote};
 }
+let researchPollAt=0, fullActivityRevision=null, fullActivityLoading=false;
+function activityAge(iso, now) { return Math.max(0,Math.floor((now-Date.parse(iso))/1000)) || 0; }
+function activityDuration(seconds) {
+  return seconds<60 ? seconds+'s' : Math.floor(seconds/60)+'m '+seconds%60+'s';
+}
+function researchHealth(now=Date.now()) {
+  const a=researchState?.activity;
+  if(!a)return null;
+  const active=Boolean(researchState.active), offline=now-researchPollAt>12000;
+  const serverNow=(Date.parse(researchState.server_time)||now)+(now-researchPollAt);
+  const age=activityAge(a.last_event_at,serverNow);
+  return {active,offline,age,serverNow,
+    elapsed:activityAge(a.started_at,active?serverNow:Date.parse(a.last_event_at)),
+    tone:active && (offline || age>=240)?'attention':active && age>=60?'waiting':'normal',
+    title:!active?'Run ended':offline?'Connection interrupted':age>=240?'Progress needs attention':age>=60?'Waiting for the next step':'Recent progress recorded'};
+}
+function renderResearchHealth() {
+  const a=researchState?.activity,h=researchHealth();
+  if(!a || !h)return;
+  const box=$('research-health');box.dataset.tone=h.tone;box.replaceChildren();
+  const heading=document.createElement('strong');heading.textContent=h.title;
+  const metrics=document.createElement('p');metrics.className='research-metrics';
+  metrics.textContent=a.saved+' saved · '+a.visited+' profiles checked · '+activityDuration(h.elapsed)+' elapsed';
+  const note=document.createElement('p');note.className='caption';
+  note.textContent=!h.active?'Last recorded step at '+new Date(a.last_event_at).toLocaleTimeString():
+    h.offline?'Updates are not reaching this page. The run may still be working; reconnect before starting another run.':
+    'App responding · last recorded step '+activityDuration(h.age)+' ago. '+
+    (h.age>=240?'No recent progress is confirmed. Check the browser or stop the run before trying again.':
+     h.age>=60?'A model step can take 2–4 minutes. This timer does not prove the agent is progressing.':'');
+  box.append(heading,metrics,note);
+  const lanes=$('research-lanes');lanes.replaceChildren();lanes.hidden=!h.active;
+  for(const [name,event] of Object.entries(a.lanes)) {
+    const row=document.createElement('div');row.className='research-lane';
+    const label=document.createElement('strong');label.textContent=name;
+    const detail=document.createElement('span'),done=['web_worker_finished','web_worker_canceled'].includes(event.kind);
+    const age=activityAge(event.created,h.serverNow);
+    detail.textContent=decisionSummary({...event,detail:JSON.stringify({...JSON.parse(event.detail),worker:null})}).title;
+    const time=document.createElement('small');time.textContent=done?'Finished':activityDuration(age)+' since update';
+    row.dataset.waiting=String(!done && age>=60);row.append(label,detail,time);lanes.append(row);
+  }
+}
+function decisionCard(event) {
+  const detail=decisionSummary(event),card=document.createElement('article');card.className='decision-card';
+  card.dataset.outcome=event.kind==='staged_for_review'?'saved':event.kind.includes('excluded') || event.kind.includes('unconfirmed') || event.kind==='insufficient_evidence'?'skipped':'step';
+  const top=document.createElement('div');top.className='decision-heading';
+  const title=document.createElement('strong');title.textContent=detail.title;
+  const stamp=document.createElement('time');stamp.dateTime=event.created;stamp.textContent=new Date(event.created).toLocaleTimeString();stamp.title=new Date(event.created).toLocaleString();
+  top.append(title,stamp);
+  const text=document.createElement('p');text.textContent=detail.text;card.append(top,text);
+  if(detail.query && event.kind!=='search'){const query=document.createElement('p');query.className='decision-query';query.textContent=detail.query;card.append(query);}
+  if(detail.quote){const quote=document.createElement('blockquote');quote.textContent=detail.quote;card.append(quote);}
+  if(detail.url) {
+    try {const url=new URL(detail.url);if(url.protocol==='https:' && !url.username && !url.password) {
+      const link=document.createElement('a');link.href=url.href;link.textContent='View source ↗';link.target='_blank';link.rel='noopener noreferrer';card.append(link);
+    }}catch(_){}
+  }
+  return card;
+}
+async function loadFullActivity() {
+  const events=researchState?.events || [],run=events[0]?.run_id;
+  if(!run || !$('research-activity').open || fullActivityLoading)return;
+  const revision=run+':'+events[0].id;
+  if(fullActivityRevision===revision)return;
+  fullActivityLoading=true;$('full-activity-status').textContent='Loading recorded steps…';
+  try {
+    const rows=await api('discovery/events?run_id='+encodeURIComponent(run));
+    if(researchState?.events[0]?.run_id!==run)return;
+    const log=$('full-decision-log'),scroll=log.scrollTop;
+    log.replaceChildren(...rows.map(decisionCard));log.scrollTop=scroll;
+    fullActivityRevision=revision;
+    $('full-activity-status').textContent=rows.length+' recorded steps · updates while this panel is open';
+  } catch(e) {$('full-activity-status').textContent='Could not refresh the full log. Retrying when connected.';}
+  finally {fullActivityLoading=false;}
+}
+$('research-activity').addEventListener('toggle',loadFullActivity);
+setInterval(renderResearchHealth,1000);
 function renderDecisions() {
   const events=researchState?.events || [];
   const activity=$('research-decisions');
   if(activity.dataset.active!==String(Boolean(researchState?.active))){activity.open=Boolean(researchState?.active);activity.dataset.active=String(Boolean(researchState?.active));}
-  $('research-decisions').hidden=!events.length;
+  activity.hidden=!events.length;
   if(!events.length)return;
+  renderResearchHealth();
+  loadFullActivity();
   const revision=events[0].id+':'+Boolean(researchState.active);
   if(revision===decisionRevision)return;
   decisionRevision=revision;
   const run=events[0].run_id;
-  const current=events.filter(e=>e.run_id===run).slice(0,16);
-  $('research-live-step').textContent=(researchState.active?'Now: ':'Latest run: ')+decisionSummary(current[0]).title;
-  const log=$('decision-log');log.dataset.runId=run;log.replaceChildren();
-  for(const event of current) {
-    const detail=decisionSummary(event),card=document.createElement('article');card.className='decision-card';
-    const title=document.createElement('strong');title.textContent=detail.title;
-    const text=document.createElement('p');text.textContent=detail.text;card.append(title,text);
-    if(detail.query && event.kind!=='search') {const query=document.createElement('p');query.className='decision-query';query.textContent=detail.query;card.append(query);}
-    if(detail.quote){const quote=document.createElement('blockquote');quote.textContent=detail.quote;card.append(quote);}
-    if(detail.url) {
-      try {const url=new URL(detail.url);if(url.protocol==='https:' && !url.username && !url.password) {
-        const link=document.createElement('a');link.href=url.href;link.textContent='View source ↗';link.target='_blank';link.rel='noopener noreferrer';card.append(link);
-      }}catch(_){/* Untrusted source URLs remain unlinked. */}
-    }
-    log.append(card);
-  }
+  const current=events.filter(e=>e.run_id===run && !['started','finished','stopped'].includes(e.kind)).slice(0,5);
+  $('research-live-step').textContent='Recent steps · newest first';
+  $('full-activity-label').textContent='All recorded steps ('+(researchState.activity?.event_count || events.length)+')';
+  const log=$('decision-log'),scroll=log.scrollTop;log.dataset.runId=run;
+  log.replaceChildren(...current.map(decisionCard));log.scrollTop=scroll;
 }
-
-
 
 $('discovery-recheck').onchange=controls;
 $('discovery-profile').oninput=controls;

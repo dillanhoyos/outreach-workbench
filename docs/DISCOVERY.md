@@ -248,3 +248,19 @@ requests still stop after checking that person. Deadline cancellation reaches
 in-flight model turns in both web workers; an active browser or source read may
 finish up to its timeout later. Rate limits, authentication challenges and provider
 errors still stop the run.
+
+### Following a running search
+
+Research activity separates app connectivity from recorded agent progress. It shows
+saved/visited counts, elapsed time, and the latest recorded step for each web
+worker and the coordinator/LinkedIn worker. After 60 seconds without a new event,
+the panel says it is waiting; after four minutes it asks for attention. These are
+observability hints, not proof that a worker is stuck or a reason to restart it
+automatically. Existing execution deadlines and stop controls still apply.
+
+If the page has not received a successful workspace update for 12 seconds, it
+shows a connection interruption and warns that the run may still be working.
+The recent feed shows five steps. Expand **All recorded steps** for the complete
+current-run log, including local timestamps and source links; it refreshes while
+open. The authenticated events endpoint is scoped by run ID and is not limited
+to the 80-event status snapshot. Completed runs keep a fixed elapsed duration.

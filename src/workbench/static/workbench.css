@@ -325,3 +325,20 @@ button:not(:disabled):active{transform:translateY(1px)}
 #reply-reader .connection-actions label{margin:0}
 #reader-limit{width:85px}
 #reader-cases{max-height:160px;overflow:auto}
+
+/* Research observability: connection status is distinct from agent progress. */
+.research-health{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#f5f8ff;margin-bottom:12px}
+.research-health[data-tone="waiting"]{background:#fff9ec;border-color:#edcf92}
+.research-health[data-tone="attention"]{background:#fff1ed;border-color:#e7ac9d}
+.research-health p{margin:7px 0 0}.research-metrics{font-size:12px;font-variant-numeric:tabular-nums}
+.research-lanes{display:grid;gap:6px;margin-bottom:16px}
+.research-lane{display:grid;grid-template-columns:140px 1fr;gap:3px 10px;font-size:11px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}
+.research-lane small{grid-column:2;color:var(--muted)}.research-lane[data-waiting="true"]{border-color:#edcf92}
+.decision-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.decision-heading time{white-space:nowrap;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+#decision-log{max-height:none;overflow:visible}
+#decision-log .decision-card p{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.decision-card[data-outcome="saved"]{border-left-color:#238566;background:#f1faf5}
+.decision-card[data-outcome="skipped"]{border-left-color:#b68b39;background:#fffbf2}
+#full-decision-log{max-height:520px;overflow:auto;overscroll-behavior:contain}
+@media(max-width:600px){.research-lane{grid-template-columns:1fr}.research-lane small{grid-column:1}.decision-heading{flex-wrap:wrap;gap:4px}}

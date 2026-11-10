@@ -365,6 +365,11 @@ def create_app(settings=None, provider=None):
     @app.get('/api/discovery/state',dependencies=[Depends(auth)])
     def research_state():return research.state()
 
+    @app.get('/api/discovery/events',dependencies=[Depends(auth)])
+    def research_events(run_id:str):
+        with store.db() as db:
+            return [dict(r) for r in db.execute('SELECT * FROM research_events WHERE run_id=? ORDER BY id DESC',(run_id,))]
+
     @app.post('/api/discovery/brief',dependencies=[Depends(auth)])
     def refine_brief(body:BriefMessage):
         if settings.mode!='live' or not discovery_status().get('plan_ready'):

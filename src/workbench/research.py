@@ -127,7 +127,21 @@ class Discovery:
     def state(self):
         with self.store.db() as db:
             events=[dict(r) for r in db.execute('SELECT * FROM research_events ORDER BY id DESC LIMIT 80')]
-        return {'plan':self.store.setting('research_plan'),'report':self.store.setting('research_report'),
+        activity=None
+        if events:
+            run_id=events[0]['run_id']
+            with self.store.db() as db:
+                rows=[dict(r) for r in db.execute('SELECT * FROM research_events WHERE run_id=? ORDER BY id',(run_id,))]
+            lanes={}
+            for row in rows:
+                detail=json.loads(row['detail'])
+                if row['kind'] not in ('started','finished','stopped'):
+                    lane='Web '+str(detail['worker']) if detail.get('worker') else 'Coordinator / LinkedIn'
+                    lanes[lane]=row
+            activity={'run_id':run_id,'started_at':rows[0]['created'],'last_event_at':rows[-1]['created'],
+                'event_count':len(rows),'saved':sum(r['kind']=='staged_for_review' for r in rows),
+                'visited':sum(r['kind']=='visiting' for r in rows),'lanes':lanes}
+        return {'activity':activity,'server_time':now(),'plan':self.store.setting('research_plan'),'report':self.store.setting('research_report'),
                 'events':events,'active':bool(self.store.setting('research_active')),
                 'conversation':self.store.setting('research_conversation') or {'messages':[],'brief':'','revision':''}}
 
