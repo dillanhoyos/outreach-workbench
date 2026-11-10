@@ -16,6 +16,12 @@ from .audience import Criterion, Check, lock, valid, checklist
 def fold(value):
     return ' '.join(re.findall(r'\w+', ''.join(c for c in unicodedata.normalize('NFKD',value).casefold() if not unicodedata.combining(c))))
 
+def linkedin_keywords(query):
+    # Google/Bing operators are not meaningful in LinkedIn's people search.
+    query=re.sub(r'(?i)(?<!\S)-?(?:site|inurl|intitle|filetype):(?:"[^"]*"|\S+)',' ',query)
+    query=re.sub(r'https?://\S+',' ',query)
+    return ' '.join(query.split()).strip()[:250]
+
 class Plan(BaseModel):
     model_config = ConfigDict(extra='forbid')
     linkedin_query:str=Field(min_length=3,max_length=250)
@@ -262,7 +268,7 @@ class Discovery:
         web_first=True
         plan=self.ask('Plan up to six concise web searches for primary company sources, then LinkedIn confirmation. '+
                       'Include the sector, role families and geography. Explain the qualification criteria. '
-                      'Include a separate linkedin_query with the requested ROLE and company/sector keywords. Queries are concrete keywords, never templates or placeholders. Do not narrow accounting/risk roles to CFOs unless asked. '
+                      'Include a separate concise linkedin_query with the requested ROLE and company/sector keywords, without site:, inurl:, intitle:, filetype: or URLs. Queries are concrete keywords, never templates or placeholders. Do not narrow accounting/risk roles to CFOs unless asked. '
                       'Compile an exhaustive, atomic checklist of the audience requirements, preserving every explicit inclusion and exclusion. '
                       'Only emit restrictive eligibility criteria that require evidence. OMIT unrestricted geography, worldwide eligibility, target count, saving and CRM instructions from criteria. '
                       'Use company scope for product, batch, company geography or stage; person scope for role/current employment/person geography. '
@@ -273,6 +279,8 @@ class Discovery:
                       'Make memory and monitoring inclusion explicit when relevant. Do not invent restrictions. '
                       'If a requirement remains ambiguous, write that ambiguity into the criterion; it must not pass until resolved.',
                       {'brief':prompt},Plan)
+        plan.linkedin_query=linkedin_keywords(plan.linkedin_query)
+        if not plan.linkedin_query:raise ProviderError('LinkedIn query needs role and company keywords.')
         if '[' in plan.linkedin_query or '://' in plan.linkedin_query:raise ProviderError('LinkedIn query must use concrete audience keywords.')
         if any(not q.strip() or len(q)>250 or '://' in q for q in plan.queries):
             raise ProviderError('Research plan contained an invalid search query.')
@@ -445,7 +453,12 @@ class Discovery:
             return  # Explicit single-profile runs never expand to other people.
         round_number=0
         tried_queries=list(plan["queries"])
+        tried_linkedin=set();browser_pending=[]
         while remaining():
+            if browser_pending:
+                pending=browser_pending[:2];del browser_pending[:2]
+                yield self.fresh_links(pending,plan,run_id)
+                if not remaining():return
             seed=next(pending_seeds,None)
             if seed is not None:
                 yield recheck(seed)
@@ -454,30 +467,36 @@ class Discovery:
             if not remaining():return
             self.event(run_id,'expanding_web',{'reason':f'{report["staged"]}/{plan["limit"]} saved. Two web workers are finding primary company evidence.'})
             with self.store.db() as db:
-                recent=[json.loads(r['detail']) for r in db.execute("SELECT detail FROM research_events WHERE run_id=? AND kind IN ('web_source','web_excluded','insufficient_evidence') ORDER BY id DESC LIMIT 30",(run_id,))]
+                recent=[json.loads(r['detail']) for r in db.execute("SELECT detail FROM research_events WHERE run_id=? AND kind IN ('web_source','web_excluded','insufficient_evidence','search','filtered_seen','web_shortlist','query_exhausted') ORDER BY id DESC LIMIT 30",(run_id,))]
             web_plan={**plan,'limit':plan['limit']-report['staged'],'exclude_visited':True,
                 'round':round_number,'previous_results':recent}
             if round_number>1:
-                revised=self.ask('Prepare NEW web search queries for the same audience. Earlier results are exhausted. Try other companies and terminology without relaxing any requirement.',
-                    {'brief':plan['prompt'],'audience':plan['audience'],'previous_queries':tried_queries[-60:],'recent_results':recent},Plan)
+                revised=self.ask('Prepare NEW web queries AND a NEW concise LinkedIn people query for the same locked audience. Previous queries are exhausted; do not repeat them. Include the role, avoid web-only site:/inurl: syntax in linkedin_query. Try other company names and terminology without relaxing any criterion.',
+                    {'brief':plan['prompt'],'audience':plan['audience'],'previous_queries':tried_queries[-60:],'previous_linkedin_queries':sorted(tried_linkedin),'recent_results':recent},Plan)
                 web_plan['queries']=revised.queries
+                web_plan['linkedin_query']=revised.linkedin_query
                 tried_queries.extend(revised.queries)
             searched_browser=False;fresh_found=False
             def search_browser():
                 nonlocal searched_browser
                 searched_browser=True
                 guard()
-                # Reuse a concrete query, removing syntax meant for web engines.
-                query=plan['linkedin_query']
-                if not query:return []
+                query=linkedin_keywords(web_plan['linkedin_query'])
+                key=query.casefold()
+                if not query or key in tried_linkedin:
+                    self.event(run_id,'query_exhausted',{'query':query,'reason':'This LinkedIn query was already searched in this run. Skipping a repeat; web workers continue with the latest search feedback.'})
+                    return []
+                tried_linkedin.add(key)
                 self.event(run_id,'searching',{'query':query,'reason':'The browser is free. Searching LinkedIn visibly while web evidence research continues.'})
                 page,observed=self.browser.search(query)
                 self.context(run_id,'linkedin_search',{'query':query,'page':page,'observed_profiles':observed})
                 guard()
                 self.event(run_id,'search',{'query':query,'url':page['url'],'observed_profiles':len(observed)})
-                # One supplemental profile per round keeps ready web candidates
-                # from waiting behind a whole LinkedIn results page.
-                return [{**item,'needs_primary_evidence':True} for item in self.fresh_links(observed,plan,run_id)[:1]]
+                # Keep remaining results: visiting only the first must not lose the rest.
+                candidates=[{**item,'needs_primary_evidence':True} for item in self.fresh_links(observed,plan,run_id)]
+                browser_pending.extend(candidates[1:])
+                self.event(run_id,'browser_candidates_queued',{'query':query,'reason':f'{len(candidates)} new profile results; {len(browser_pending)} retained for subsequent visits. These are search candidates, not qualified leads.'})
+                return candidates[:1]
             self.event(run_id,'browser_waiting',{'reason':'Waiting for web candidates. If the browser stays idle for 20 seconds, it will search LinkedIn in this same session.'})
             for links in self._web_pool.batches(web_plan,on_idle=search_browser):
                 fresh=self.fresh_links(links,plan,run_id)

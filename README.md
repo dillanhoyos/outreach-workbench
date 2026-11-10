@@ -212,3 +212,11 @@ qualification. Suggestions are never evidence about the referring person and
 never bypass the same checklist, visit/time limits, or duplicate checks. Automatic
 cached reassessment requires the same audience version; use Recheck deliberately
 for older missing-evidence profiles under a newly reviewed plan.
+
+LinkedIn people searches use their own query, with web-only operators such as
+`site:` removed. Subsequent rounds use the revised LinkedIn query and skip exact
+repeats within the run. Remaining fresh results are retained for subsequent visits
+rather than discarded after the first result. Search revisions receive result and
+exclusion feedback; they cannot relax the locked audience. Recheck makes prior
+missing-evidence profiles eligible for web discovery as well as browser visits,
+while saved contacts and profiles already attempted in the current run stay excluded.

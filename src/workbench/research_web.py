@@ -151,8 +151,11 @@ def discover(engine,plan,run_id,guard,shared=None):
     with engine.store.db() as db:
         known=[r[0] for r in db.execute('SELECT url FROM leads')]
         if plan.get('exclude_visited'):
-            known.extend(r[0] for r in db.execute('SELECT url FROM research_visits'))
-            known.extend(json.loads(r[0])['url'] for r in db.execute('SELECT record FROM crm_research_profiles'))
+            def exclude(state,previous_run):
+                return not (plan.get('recheck_failed') and previous_run!=run_id and state in ('insufficient_evidence','current_employer_unclear'))
+            known.extend(r['url'] for r in db.execute('SELECT url,state,run_id FROM research_visits') if exclude(r['state'],r['run_id']))
+            known.extend(p['url'] for r in db.execute('SELECT record FROM crm_research_profiles') for p in [json.loads(r[0])] if exclude(p.get('visit_state'),p.get('run_id')))
+    known=list(dict.fromkeys(known))
     search_input={'target_profile':plan.get('target_profile'),'target_company_hint':plan.get('target_company_hint'),'audience':plan.get('audience'),'search_lane':plan.get('search_lane'),'brief':plan['prompt'],'queries':plan['queries'],'shortlist_size':min(plan['limit']+2,20),'known_profiles':known,'round':plan.get('round',1),'previous_results':plan.get('previous_results',[])}
     engine.context(run_id,'web_search_input',{'input':search_input,'provider':'codex','schema':Shortlist.model_json_schema()})
     search_task=(
