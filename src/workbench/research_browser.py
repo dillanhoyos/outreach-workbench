@@ -1,5 +1,7 @@
 """Read-only LinkedIn navigation. Model output cannot supply arbitrary URLs/actions."""
 import re
+import hashlib
+from .store import now
 from urllib.parse import urlsplit, quote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -70,7 +72,9 @@ class ResearchBrowser:
           }
           return {title:heading?.innerText||'',headline,text,links};
         ''')
-        return {'url':driver.current_url,'title':data['title'][:200],
+        return {'url':driver.current_url,'requested_url':url,'captured_at':now(),
+                'content_hash':hashlib.sha256(data['text'].encode()).hexdigest(),
+                'text_truncated':len(data['text'])>18000,'title':data['title'][:200],
                 'headline':re.sub(r'\s+',' ',data['headline']).strip()[:600],
                 'text':re.sub(r'\s+',' ',data['text']).strip()[:18000], 'links':data['links'][:120]}
 
@@ -117,3 +121,15 @@ class ResearchBrowser:
         research_url(page['url'],'company')
         page.pop('links',None)
         return page
+
+    def evidence_image(self, url):
+        """Capture the profile header in the same serial browser, without navigation."""
+        driver=self.linkedin.browser()
+        self.linkedin.check()
+        if profile_key(driver.current_url)!=profile_key(url):
+            raise ProfileIdentityError(url,driver.current_url)
+        heading=driver.find_element(By.CSS_SELECTOR,'main h1, main section h2')
+        section=driver.execute_script("return arguments[0].closest('section') || arguments[0]",heading)
+        content=section.screenshot_as_png
+        if len(content)>2_000_000:raise ProviderError('Profile image exceeds capture limit.')
+        return content

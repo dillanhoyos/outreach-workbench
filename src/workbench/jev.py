@@ -68,3 +68,39 @@ class JevAdvisor:
             return [links[index]]+links[:index]+links[index+1:]
         except ProviderError:raise
         except Exception:raise ProviderError('Jev research selection failed. Stopped without retry.') from None
+
+    def research_questions(self, state, questions, image=None):
+        """Typed page decisions. Images are optional; never generate evidence text."""
+        import base64, hashlib, time, uuid
+        body={'model':'jev-latest','state':state,'questions':questions}
+        headers={'Authorization':'Bearer '+self.key}
+        if image:
+            if len(image)>2_000_000:raise ProviderError('Jev image exceeds capture limit.')
+            ref=uuid.uuid4().hex
+            body['state']={**state,'page_image':ref}
+            body['assets']={ref:{'type':'image','format':'png','data_base64':base64.b64encode(image).decode()}}
+            headers['TypeSafe-Danger-Zone-Images']='true'
+        start=time.monotonic()
+        try:
+            def request(client):
+                return check_response(client.post('https://api.typesafe.ai/v1/systemone',json=body,headers=headers,timeout=15),'Jev')
+            if self.client is not None:data=request(self.client)
+            else:
+                with httpx.Client(trust_env=False) as client:data=request(client)
+            answers=data['answers']
+            for name,q in questions.items():
+                a=answers[name]
+                if a['type']!=q['type']:raise ValueError()
+                if q['type']=='noul':
+                    values=[a['noul']]
+                else:
+                    if a['choice'] not in q['criteria'] or set(a['probabilities'])!=set(q['criteria']):raise ValueError()
+                    values=[a['confidence'],*a['probabilities'].values()]
+                    if abs(math.fsum(a['probabilities'].values())-1)>.01:raise ValueError()
+                if any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in values):raise ValueError()
+            audit={**body}
+            if image:audit['assets']={ref:{'type':'image','sha256':hashlib.sha256(image).hexdigest(),'bytes':len(image)}}
+            return {'request':audit,'model':data.get('model'),'answers':answers,'usage':data.get('usage'),
+                'seconds':round(time.monotonic()-start,3)}
+        except ProviderError:raise
+        except Exception:raise ProviderError('Jev research request failed or returned invalid data. No automatic retry.') from None

@@ -54,7 +54,7 @@ In `.env`, set `WORKBENCH_MODE=live` and configure only the services you need:
 | Setting | Where its value comes from | When needed |
 | --- | --- | --- |
 | `WORKBENCH_TOKEN`, `VNC_PASSWORD` | Created by `python3 scripts/setup.py` | Local app / browser access |
-| Jev connection panel; `BROWSER_ADVISOR=jev` enables assistance | Your key from [TypeSafe](https://console.typesafe.ai/keys) | Optional Jev browser assistance |
+| Jev connection panel; `BROWSER_ADVISOR=jev` enables assistance | Your key from [TypeSafe](https://console.typesafe.ai/keys) | Discovery evidence extraction; optional browser assistance |
 | Codex connection panel | Your ChatGPT sign-in or OpenAI API key | Research planning and evidence assessment |
 | Google sign-in (own OAuth client), or `GOOGLE_SHEET_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | Your workbook and downloaded service-account file | Optional Sheets import/export |
 
@@ -161,3 +161,29 @@ the app. Do not share the file or token. No volume deletion is needed.
 Google Sheets: [one-time OAuth setup and import walkthrough](docs/GOOGLE_SHEETS.md).
 
 Replies: use **CRM → Replies reader**. See [reader workflow and cron setup](docs/IMPLEMENTATION.md#replies-reader-workflow-and-cron).
+
+### Discovery evidence and Jev
+
+Connect Jev in Connections to enable typed company evidence extraction in the
+actual discovery workers. It selects exact passages from captured public pages;
+uncertain results fall back to Codex. Final LinkedIn role checks and literal
+source-quote validation still apply before saving. `BROWSER_ADVISOR=jev` controls
+invitation-button assistance separately and is not required for research.
+
+Research activity → All recorded steps → **Download research context** exports
+that run's plan, hosted search queries/events and returned shortlist, model
+inputs/results, captured pages, metadata, and assessments. Rejected captured
+sources are included. The local SQLite archive survives Clear search history.
+Existing runs are not retroactively populated. Credentials and provider-private
+reasoning/search internals are not included. Captures are bounded: public HTML
+2 MB, text 35,000 characters and 500 links; LinkedIn text 18,000 characters.
+Metadata includes capture time, hashes, requested/final URLs, truncation flags,
+meta tags, JSON-LD and available public YC company/founder fields.
+
+When a LinkedIn profile has missing headline text or a sparse capture, the single
+browser worker captures its header and sends it to Jev's experimental image API.
+Images are stored once by hash locally (maximum 2 MB), referenced from the run
+archive, and available through authenticated `/api/discovery/assets/{asset_id}`.
+Visual assessments supplement metadata; they cannot manufacture missing textual
+quotes or independently qualify contacts. Normal text captures need no image call.
+Jev authentication, rate-limit or malformed-response errors stop without retry.

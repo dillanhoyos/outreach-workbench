@@ -370,6 +370,20 @@ def create_app(settings=None, provider=None):
         with store.db() as db:
             return [dict(r) for r in db.execute('SELECT * FROM research_events WHERE run_id=? ORDER BY id DESC',(run_id,))]
 
+    @app.get('/api/discovery/context',dependencies=[Depends(auth)])
+    def research_context(run_id:str):
+        with store.db() as db:
+            rows=[dict(r) for r in db.execute('SELECT * FROM research_context WHERE run_id=? ORDER BY id',(run_id,))]
+        for row in rows:row['payload']=json.loads(row['payload'])
+        return {'run_id':run_id,'records':rows,'scope':'Captured app inputs, outputs and bounded page evidence. Provider-private search context and reasoning are not exposed.'}
+
+    @app.get('/api/discovery/assets/{asset_id}',dependencies=[Depends(auth)])
+    def research_asset(asset_id:str):
+        from fastapi.responses import Response
+        with store.db() as db:row=db.execute('SELECT mime,content FROM research_assets WHERE id=?',(asset_id,)).fetchone()
+        if not row:raise HTTPException(404,'Image not found')
+        return Response(content=row['content'],media_type=row['mime'],headers={'Cache-Control':'no-store'})
+
     @app.post('/api/discovery/brief',dependencies=[Depends(auth)])
     def refine_brief(body:BriefMessage):
         if settings.mode!='live' or not discovery_status().get('plan_ready'):

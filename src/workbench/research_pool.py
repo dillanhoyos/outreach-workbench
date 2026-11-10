@@ -37,6 +37,7 @@ class WebPool:
         from .research_web import discover
         worker=copy.copy(self.engine)
         worker.browser=None
+        worker.context=lambda run_id,kind,payload:self.engine.context(run_id,kind,{'worker':index,'data':payload})
         published=False
         def publish(links):
             nonlocal published

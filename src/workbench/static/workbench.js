@@ -480,7 +480,7 @@ $('brief-reset').onclick=()=>run(async()=>{
 
 function decisionSummary(event) {
   const d=JSON.parse(event.detail || '{}');
-  const names={browser_waiting:'Waiting for web candidates',profile_loaded:'Profile captured',web_candidates_ready:'Ready for LinkedIn confirmation',profile_identity_unconfirmed:'Skipped: profile identity unconfirmed',reassessing_cached:'Checking saved evidence for this audience',web_worker_started:'Web worker started',web_worker_finished:'Web worker finished',web_worker_canceled:'Web worker stopped',filtered_seen:'Filtering previously seen profiles',adapting_search:'Trying new search queries',expanding_web:'Search handed to web workers',web_fallback:'Checking missing evidence on the web',rechecking:'Rechecking prior evidence failure',web_search:'Searching the web',web_source:'Reading primary source',web_shortlist:'Web shortlist ready',web_excluded:'Excluded before LinkedIn',started:'Run started',checking_browser:'Checking browser',searching:'Searching LinkedIn',search:'Search results',ranking:'Prioritizing with Jev',prioritized:'First profile in research order',visiting:'Opening profile',selecting_employer:'Finding the current employer',employer_selected:'Checking company',qualifying:'Evaluating fit with Codex',staged_for_review:'Saved for your review',insufficient_evidence:'Skipped: evidence did not qualify',current_employer_unclear:'Skipped: employer unclear',company_replied_or_held:'Skipped: company excluded',previously_visited_or_reserved:'Skipped: previously visited',known_contact:'Skipped: already in CRM',own_profile:'Skipped: your own profile',duplicate:'Skipped: duplicate',stopped:'Research stopped',finished:'Run finished'};
+  const names={jev_company:'Extracting company evidence with Jev',jev_image:'Checking incomplete capture with Jev image',browser_waiting:'Waiting for web candidates',profile_loaded:'Profile captured',web_candidates_ready:'Ready for LinkedIn confirmation',profile_identity_unconfirmed:'Skipped: profile identity unconfirmed',reassessing_cached:'Checking saved evidence for this audience',web_worker_started:'Web worker started',web_worker_finished:'Web worker finished',web_worker_canceled:'Web worker stopped',filtered_seen:'Filtering previously seen profiles',adapting_search:'Trying new search queries',expanding_web:'Search handed to web workers',web_fallback:'Checking missing evidence on the web',rechecking:'Rechecking prior evidence failure',web_search:'Searching the web',web_source:'Reading primary source',web_shortlist:'Web shortlist ready',web_excluded:'Excluded before LinkedIn',started:'Run started',checking_browser:'Checking browser',searching:'Searching LinkedIn',search:'Search results',ranking:'Prioritizing with Jev',prioritized:'First profile in research order',visiting:'Opening profile',selecting_employer:'Finding the current employer',employer_selected:'Checking company',qualifying:'Evaluating fit with Codex',staged_for_review:'Saved for your review',insufficient_evidence:'Skipped: evidence did not qualify',current_employer_unclear:'Skipped: employer unclear',company_replied_or_held:'Skipped: company excluded',previously_visited_or_reserved:'Skipped: previously visited',known_contact:'Skipped: already in CRM',own_profile:'Skipped: your own profile',duplicate:'Skipped: duplicate',stopped:'Research stopped',finished:'Run finished'};
   let text=d.reason || '';
   if(event.kind==='started')text='Target: '+d.plan.limit+' candidates. '+d.plan.summary;
   if(event.kind==='search')text=d.observed_profiles+' profile links observed for '+d.query;
@@ -1043,3 +1043,13 @@ $('reader-start').onclick=()=>run(async()=>{
   try{await api('replies/read',{limit});await refresh();}finally{readerSubmitting=false;controls();}
 });
 $('reader-stop').onclick=()=>run(async()=>{const result=await api('replies/stop',{});$('reader-status').textContent=result.message;});
+
+$('download-research-context').onclick=async()=>{
+  const run=researchState?.events?.[0]?.run_id;
+  if(!run)return;
+  try {
+    const data=await api('discovery/context?run_id='+encodeURIComponent(run));
+    const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+    const a=document.createElement('a');a.href=url;a.download='research-'+run+'.json';a.click();URL.revokeObjectURL(url);
+  } catch(e) {$('full-activity-status').textContent=e.message;}
+};
