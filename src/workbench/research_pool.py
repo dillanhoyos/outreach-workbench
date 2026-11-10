@@ -65,7 +65,7 @@ class WebPool:
     def batches(self,plan,on_idle=None):
         queries=plan['queries']
         self.futures=[self.executor.submit(self.worker,i+1,{**plan,'queries':queries[i::2] or queries,
-            'prompt':plan['prompt']+f'\nSearch lane {i+1}: '+('use the most direct official directory matches.' if i==0 else 'seek alternative qualifying companies and less obvious matches.')}) for i in range(2)]
+            'search_lane':('use the most direct official directory matches.' if i==0 else 'seek alternative qualifying companies and less obvious matches.')}) for i in range(2)]
         pending=set(self.futures)
         idle_since=time.monotonic();idle_used=False
         while pending or not self.ready.empty():

@@ -28,8 +28,8 @@ class Browser:
     def company(self,url):return {'url':COMPANY,'title':'Fictional Roads','text':PERSON['sector_quote']}
 
 def model(auth,task,data,schema,stop):
-    return {'Plan':{'summary':'Find current accounting professionals','queries':['accounting road concessions Colombia']},
-            'Employer':{'company_url':COMPANY,'reason':'Current employer'},'Candidate':dict(PERSON)}[schema['title']]
+    return {'Plan':{'summary':'Find current accounting professionals','queries':['accounting road concessions Colombia'],'linkedin_query':'accounting road concessions Colombia','criteria':[{'requirement':'Accounting at a road concession','scope':'company','source':'company'}]},
+            'Employer':{'company_url':COMPANY,'reason':'Current employer'},'Recommendations':{'indices':[]},'Candidate':{**PERSON,'checks':[{'criterion_id':c['id'],'status':'pass','reason':'Observed fixture evidence','evidence':[{'source':'company','quote':PERSON['sector_quote']}]} for c in (data.get('audience') or {}).get('criteria',[])]}}[schema['title']]
 
 def setup(tmp_path,reasoner=model):
     store=Store(tmp_path);browser=Browser();engine=Discovery(store,None,browser,model=reasoner)
@@ -102,7 +102,8 @@ def test_explicit_profile_headline_is_reviewable_but_former_role_is_not(tmp_path
     profile=browser.profile(PROFILE);company=browser.company(COMPANY)
     quote='Accounting Director at Fictional Roads'
     profile['headline']=quote;profile['text']=quote+' '+PERSON['location_quote']
-    candidate=Candidate(**{**PERSON,'current_role_quote':quote})
+    engine._locked_audience=plan['audience']
+    candidate=Candidate(**{**PERSON,'current_role_quote':quote,'checks':[{'criterion_id':'c1','status':'pass','reason':'Fixture','evidence':[{'source':'company','quote':PERSON['sector_quote']}]}]})
     assert engine.stage(PROFILE,candidate,profile,company,'fixture')=='staged_for_review'
     assert json.loads(store.list('leads')[0]['evidence'])['role_source']=='profile_headline'
     profile['headline']='Former '+quote;profile['text']=profile['headline']+' '+PERSON['location_quote']

@@ -16,6 +16,8 @@ def test_parallel_web_serial_linkedin_dedupe_and_target(tmp_path,monkeypatch):
     browser.search=lambda q:(_ for _ in ()).throw(AssertionError('Web first required'))
     def web(worker,p,*args,**kwargs):
         assert worker.browser is None
+        assert p['audience']==plan['audience'] and p['prompt']==plan['prompt']
+        assert worker._locked_audience['id']==plan['audience']['id']
         threads.append(threading.get_ident());barrier.wait(timeout=5)
         return [{'url':PROFILE,'label':'Seen'}]+[{'url':f'https://www.linkedin.com/in/new-{i}/','label':'New','web_company':browser.company(COMPANY)} for i in range(4)]
     monkeypatch.setattr(research_web,'discover',web)
@@ -48,7 +50,7 @@ def test_targeted_profile_searches_web_without_expanding(tmp_path,monkeypatch):
     calls=[]
     monkeypatch.setattr(research_web,'discover',lambda *a:calls.append(a[1]) or [])
     report=engine.run(plan['id'],True)
-    assert len(calls)==1 and PROFILE in calls[0]['prompt']
+    assert len(calls)==1 and PROFILE == calls[0]['target_profile']
     assert report['staged']==1 and browser.visits==1
 
 
@@ -57,7 +59,7 @@ def test_worker_failure_cancels_peer_and_finishes_before_inactive(tmp_path,monke
     store,browser,engine,plan=setup(tmp_path);barrier=threading.Barrier(2);ended=[]
     def web(worker,p,*args,**kw):
         barrier.wait(timeout=5)
-        if 'lane 1' in p['prompt']:raise ProviderError('HTTP 429: stopped')
+        if p.get('search_lane','').startswith('use the most direct'):raise ProviderError('HTTP 429: stopped')
         while not worker.stop.is_set():threading.Event().wait(.01)
         ended.append(True);return []
     monkeypatch.setattr(research_web,'discover',web)
@@ -155,7 +157,7 @@ def test_linkedin_starts_while_web_worker_still_researching(tmp_path,monkeypatch
         return original(url)
     browser.profile=profile
     def web(worker,p,*a,**kw):
-        if 'lane 1' not in p['prompt']:return []
+        if not p.get('search_lane','').startswith('use the most direct'):return []
         worker._publish_candidates([{'url':PROFILE,'label':'First','web_company':browser.company(COMPANY)}])
         assert visited.wait(3), 'LinkedIn waited for the whole web shortlist'
         later=[{'url':f'https://www.linkedin.com/in/streamed-{i}/','label':'Later','web_company':browser.company(COMPANY)} for i in range(2)]
@@ -183,7 +185,7 @@ def test_recheck_backlog_does_not_block_fresh_web_candidates(tmp_path,monkeypatc
         return original(url)
     browser.profile=profile
     def web(worker,p,*a,**kw):
-        if 'Research ONLY' in p['prompt']:return []
+        if p.get('target_profile'):return []
         return [{'url':f'https://www.linkedin.com/in/fresh-{i}/','label':'New','web_company':browser.company(COMPANY)} for i in range(3)]
     monkeypatch.setattr(research_web,'discover',web)
     report=engine.run(plan['id'],True)
@@ -210,7 +212,7 @@ def test_idle_web_uses_same_serial_browser_without_waiting_for_workers(tmp_path,
     store.setting('research_plan',plan)
     searched=threading.Event();calls=[];owner=threading.get_ident()
     def web(worker,p,*a,**kw):
-        if 'Research ONLY' in p['prompt']:
+        if p.get('target_profile'):
             return [{'url':PROFILE,'label':'Verified','web_company':browser.company(COMPANY)}]
         assert worker.browser is None
         assert searched.wait(3)
@@ -223,7 +225,7 @@ def test_idle_web_uses_same_serial_browser_without_waiting_for_workers(tmp_path,
     monkeypatch.setattr(research_pool,'BROWSER_IDLE_SECONDS',0)
     monkeypatch.setattr(research_web,'discover',web)
     result=engine.run(plan['id'],True)
-    assert calls==[('founder S24',owner)]
+    assert calls==[(plan['linkedin_query'],owner)]
     assert result['linkedin_searches']==1 and result['staged']==1
 
 
@@ -231,6 +233,6 @@ def test_empty_web_shortlist_triggers_linkedin_search(tmp_path,monkeypatch):
     store,browser,engine,plan=setup(tmp_path)
     plan['limit']=1;store.setting('research_plan',plan)
     monkeypatch.setattr(research_web,'discover',lambda worker,p,*a,**kw:
-        [{'url':PROFILE,'label':'Verified','web_company':browser.company(COMPANY)}] if 'Research ONLY' in p['prompt'] else [])
+        [{'url':PROFILE,'label':'Verified','web_company':browser.company(COMPANY)}] if p.get('target_profile') else [])
     result=engine.run(plan['id'],True)
     assert result['linkedin_searches']==1 and result['staged']==1

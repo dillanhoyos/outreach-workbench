@@ -12,7 +12,9 @@ from test_research import setup,model,PERSON,PROFILE
 def test_clear_logs_keeps_crm_visit_memory_connections_and_recheck(tmp_path):
     def reject(*args):
         data=model(*args)
-        if args[3]['title']=='Candidate':data.update(qualified=False,needs_web_evidence=False,reason='Wrong sector for this audience')
+        if args[3]['title']=='Candidate':
+            data.update(qualified=False,needs_web_evidence=False,reason='Wrong sector for this audience')
+            data['checks'][0]['status']='fail'
         return data
     store,browser,engine,plan=setup(tmp_path,reject)
     plan['profile_url']=PROFILE;store.setting('research_plan',plan)

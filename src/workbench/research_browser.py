@@ -112,6 +112,7 @@ class ResearchBrowser:
             except ValueError: continue
             companies.setdefault(company, {'url':company,'label':link['label']})
         page['companies'] = list(companies.values())[:12]
+        page['recommendations']=self.recommended_profiles(safe)
         page.pop('links',None)
         return page
 
@@ -133,3 +134,25 @@ class ResearchBrowser:
         content=section.screenshot_as_png
         if len(content)>2_000_000:raise ProviderError('Profile image exceeds capture limit.')
         return content
+
+    def recommended_profiles(self, parent_url):
+        """Read recommendation hints separately, only from the expected profile."""
+        driver=self.linkedin.browser()
+        try:
+            if profile_key(driver.current_url)!=profile_key(parent_url):return []
+        except ValueError:return []
+        recommended=driver.execute_script("""
+          const sections=[...document.querySelectorAll('aside,section')].filter(e=>
+            /^(More profiles for you|People also viewed|Personas que también vieron|Más perfiles para ti)$/i.test(
+              e.querySelector('h2,h3')?.innerText.trim() || ''));
+          return sections.flatMap(e=>[...e.querySelectorAll('a[href*="/in/"]')])
+            .filter(a=>a.getClientRects().length && a.innerText.trim().length>3)
+            .map(a=>({url:a.href,label:a.innerText.trim().slice(0,500)})).slice(0,24);
+        """)
+        hints={}
+        for hint in recommended or []:
+            try:link=research_url(hint['url'],'profile')
+            except ValueError:continue
+            if link!=parent_url and len(hint['label'])>len(hints.get(link,{}).get('label','')):
+                hints[link]={'url':link,'label':hint['label']}
+        return list(hints.values())[:12]

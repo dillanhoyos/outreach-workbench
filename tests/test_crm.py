@@ -58,7 +58,7 @@ def test_actions_and_messages_update_without_changing_qualification(tmp_path):
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
 
 
-def test_new_campaign_reuses_recent_evidence_without_profile_visit(tmp_path):
+def test_new_campaign_does_not_reuse_other_audience_evidence(tmp_path,fixture_web):
     from workbench.store import now
     store=Store(tmp_path);browser=Browser();engine=Discovery(store,None,browser,model=model)
     profile=browser.profile(PROFILE);company=browser.company(COMPANY)
@@ -66,9 +66,9 @@ def test_new_campaign_reuses_recent_evidence_without_profile_visit(tmp_path):
     plan=engine.prepare('Accounting directors',1)
     browser.profile=lambda _:(_ for _ in ()).throw(AssertionError('No repeat visit'))
     result=engine.run(plan['id'],True)
-    assert result['staged']==1 and result['visited']==0 and result['cached_assessments']==1
+    assert result['staged']==0 and result['visited']==0 and not result.get('cached_assessments')
     with store.db() as db:
-        assert db.execute('SELECT COUNT(DISTINCT campaign_id) FROM crm_assessments WHERE campaign_id IS NOT NULL').fetchone()[0]==2
+        assert db.execute('SELECT COUNT(DISTINCT campaign_id) FROM crm_assessments WHERE campaign_id IS NOT NULL').fetchone()[0]==1
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
 
 

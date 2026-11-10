@@ -187,3 +187,28 @@ archive, and available through authenticated `/api/discovery/assets/{asset_id}`.
 Visual assessments supplement metadata; they cannot manufacture missing textual
 quotes or independently qualify contacts. Normal text captures need no image call.
 Jev authentication, rate-limit or malformed-response errors stop without retry.
+
+### Locked audiences and profile checklists
+
+Preparing a research plan compiles a versioned audience checklist. Review its
+batch, product, role and evidence-source rules before starting. Every worker
+receives the same audience ID and criteria. Query changes and targeted searches
+are separate instructions; they cannot rewrite the locked audience. Changing
+requirements means preparing a new plan. Older plans must be prepared again.
+
+Every assessed profile records pass, not aligned, or missing evidence for each
+criterion, with exact source quotations. A save requires all criteria to pass,
+plus the existing identity, current-role, duplicate and contact-history checks.
+Founder status may come from an official company/YC founder listing when the
+criterion permits it; current employment is checked separately on LinkedIn.
+The plan and CRM profile details show the checklist, and activity cards show it
+when qualification finishes. Historic assessments retain their own checklist;
+older runs without a checklist are identified as such, not retroactively certified.
+
+LinkedIn recommendations can seed further research after an aligned profile.
+The agent selects up to two plausible suggestions per profile, capped at ten per
+run, records the referring profile, and verifies primary company evidence before
+qualification. Suggestions are never evidence about the referring person and
+never bypass the same checklist, visit/time limits, or duplicate checks. Automatic
+cached reassessment requires the same audience version; use Recheck deliberately
+for older missing-evidence profiles under a newly reviewed plan.

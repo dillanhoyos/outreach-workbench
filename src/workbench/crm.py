@@ -131,6 +131,9 @@ def assessment(db,record,history=False):
       VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET qualification=excluded.qualification,
       reason_code=excluded.reason_code,explanation=excluded.explanation,checked_at=excluded.checked_at''',
       (aid,pid,cam,run,qualification,record.get('visit_state') or status or 'legacy',record.get('reason') or 'Imported legacy record',checked))
+    db.execute('CREATE TABLE IF NOT EXISTS crm_checklists (assessment_id TEXT PRIMARY KEY, audience_id TEXT, checklist TEXT NOT NULL, origin TEXT)')
+    if record.get('audience_id'):
+        db.execute('INSERT OR REPLACE INTO crm_checklists VALUES(?,?,?,?)',(aid,record['audience_id'],json.dumps(record.get('checklist',[])),json.dumps(record.get('origin'))))
     if history:return
     ev=unpack(record.get('evidence'));a=ev.get('assessment');a=a if isinstance(a,dict) else ev
     source=(ev.get('profile') or {}).get('url') or record['url']
@@ -213,6 +216,10 @@ def enrich(db,records):
         p=db.execute('SELECT * FROM crm_people WHERE profile_key=?',(r['profile_key'],)).fetchone()
         if not p:continue
         assessments=[dict(a) for a in db.execute('SELECT a.*,c.name campaign_name,c.brief FROM crm_assessments a LEFT JOIN crm_campaigns c ON c.id=a.campaign_id WHERE person_id=? ORDER BY checked_at DESC',(p['id'],))]
+        for a in assessments:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='crm_checklists'").fetchone():
+                saved=db.execute('SELECT audience_id,checklist,origin FROM crm_checklists WHERE assessment_id=?',(a['id'],)).fetchone()
+                if saved:a.update(audience_id=saved['audience_id'],checklist=json.loads(saved['checklist']),origin=json.loads(saved['origin'] or 'null'))
         latest=next((a for a in assessments if a['run_id']==r.get('run_id')),assessments[0] if assessments else {})
         action=db.execute('SELECT * FROM crm_actions WHERE person_id=? ORDER BY attempted_at DESC LIMIT 1',(p['id'],)).fetchone()
         r.update(person_id=p['id'],company_id=p['company_id'],qualification=latest.get('qualification','unassessed'),

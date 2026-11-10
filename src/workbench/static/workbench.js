@@ -111,6 +111,7 @@ async function refresh() {
     $('research-plan').hidden = status.mode !== 'live' || !researchState.plan;
     if (researchState.plan) {
       $('plan-summary').textContent = researchState.plan.summary;
+      renderChecklist($('audience-criteria'),(researchState.plan.audience?.criteria || []).map(c=>({...c,status:'locked',evidence:[]})));
       $('plan-metrics').replaceChildren();
       for(const label of [researchState.plan.limit+' people',researchState.plan.max_minutes+' minutes',researchState.plan.max_profiles ? researchState.plan.max_profiles+' visits max' : 'No visit cap']) {const span=document.createElement('span');span.textContent=label;$('plan-metrics').append(span);}
     }
@@ -538,7 +539,7 @@ function decisionCard(event) {
   const title=document.createElement('strong');title.textContent=detail.title;
   const stamp=document.createElement('time');stamp.dateTime=event.created;stamp.textContent=new Date(event.created).toLocaleTimeString();stamp.title=new Date(event.created).toLocaleString();
   top.append(title,stamp);
-  const text=document.createElement('p');text.textContent=detail.text;card.append(top,text);
+  const text=document.createElement('p');text.textContent=detail.text;card.append(top,text);renderChecklist(card,JSON.parse(event.detail).checklist || []);
   if(detail.query && event.kind!=='search'){const query=document.createElement('p');query.className='decision-query';query.textContent=detail.query;card.append(query);}
   if(detail.quote){const quote=document.createElement('blockquote');quote.textContent=detail.quote;card.append(quote);}
   if(detail.url) {
@@ -670,7 +671,8 @@ function renderCrm(leads,status) {
         const summary=document.createElement('h3');summary.textContent='Research & evidence';details.append(summary);
         const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent='Last visited: '+(lead.visited_at || 'Not recorded')+'\nAudience: '+(lead.audience || lead.campaign || 'Unassigned')+'\nDecision: '+(lead.reason || lead.availability_reason || 'Review the assessments below.');details.append(text);
         for(const entry of (lead.research_history || []).slice(0,-1)){const p=document.createElement('p');p.textContent=entry.visited_at+' · '+entry.status+' · '+entry.audience+' · '+entry.reason;details.append(p);}
-        for(const a of lead.assessments || []){const p=document.createElement('p');p.textContent=(a.campaign_name || 'Unassigned')+' · '+a.qualification+' · '+a.explanation;details.append(p);}
+        if(!(lead.assessments || []).some(a=>a.checklist?.length)){const p=document.createElement('p');p.textContent='Older assessment: no locked audience checklist was recorded.';details.append(p);}
+        for(const a of lead.assessments || []){if(a.origin){const origin=document.createElement('p');origin.textContent='Discovered through a LinkedIn recommendation from '+a.origin.parent_profile;details.append(origin);}renderChecklist(details,a.checklist || []);const p=document.createElement('p');p.textContent=(a.campaign_name || 'Unassigned')+' · '+a.qualification+' · '+a.explanation;details.append(p);}
         for(const source of lead.sources || []){const p=document.createElement('p');p.textContent=source.fact_type+': “'+source.quotation+'” · '+source.captured_at;details.append(p);try{const u=new URL(source.source_url);if(u.protocol==='https:' && !u.username && !u.password){const a=document.createElement('a');a.href=u.href;a.textContent='Source ↗';a.target='_blank';a.rel='noopener noreferrer';details.append(a);}}catch(_){}}
         for(const m of lead.messages || []){const p=document.createElement('p');p.textContent=m.direction+' · '+m.occurred_at+' · '+m.body;details.append(p);}
 
@@ -1053,3 +1055,21 @@ $('download-research-context').onclick=async()=>{
     const a=document.createElement('a');a.href=url;a.download='research-'+run+'.json';a.click();URL.revokeObjectURL(url);
   } catch(e) {$('full-activity-status').textContent=e.message;}
 };
+
+function renderChecklist(container,rows) {
+  if(container.id==='audience-criteria')container.replaceChildren();
+  if(!rows.length)return;
+  const panel=document.createElement('details');panel.className='audience-checklist';
+  const title=document.createElement('summary');title.textContent='Audience checklist · '+(rows.every(r=>r.status==='locked')?'locked for this run':rows.filter(r=>r.status==='pass').length+'/'+rows.length+' passed');panel.append(title);
+  for(const row of rows){
+    const item=document.createElement('div');item.className='decision-card';
+    const label=document.createElement('strong');label.textContent=({pass:'✓ Pass',fail:'✕ Not aligned',missing:'? Missing evidence',locked:'Locked'})[row.status]+' · '+row.requirement;item.append(label);
+    const reason=document.createElement('p');reason.textContent=row.reason || 'Required source: '+row.source;item.append(reason);
+    for(const ev of row.evidence || []){
+      const quote=document.createElement('blockquote');quote.textContent=ev.quote;item.append(quote);
+      try{const u=new URL(ev.url);if(u.protocol==='https:'&&!u.username&&!u.password){const a=document.createElement('a');a.href=u.href;a.textContent='View '+ev.source+' source ↗';a.target='_blank';a.rel='noopener noreferrer';item.append(a);}}catch(_){}
+    }
+    panel.append(item);
+  }
+  container.append(panel);
+}
