@@ -95,3 +95,51 @@ def test_deadline_cancels_inflight_workers(tmp_path,monkeypatch,short_research_d
     result=engine.run(plan['id'],True)
     assert result['reason']=='Research time limit reached.' and len(ended)==2
     assert not engine.state()['active'] and browser.visits==0
+
+
+def test_redirected_candidate_is_recorded_and_remaining_three_save(tmp_path,monkeypatch):
+    from workbench.errors import ProfileIdentityError
+    store,browser,engine,plan=setup(tmp_path)
+    original=browser.profile
+    bad='https://www.linkedin.com/in/redirected-candidate/'
+    def profile(url):
+        if url==bad:
+            raise ProfileIdentityError(url,'https://www.linkedin.com/in/other-person/')
+        return original(url)
+    browser.profile=profile
+    links=[{'url':bad,'label':'Redirected'}]+[
+        {'url':f'https://www.linkedin.com/in/good-{i}/','label':'Candidate','web_company':browser.company(COMPANY)}
+        for i in range(3)]
+    monkeypatch.setattr(research_web,'discover',lambda *a,**kw:links)
+    report=engine.run(plan['id'],True)
+    assert report['reason']=='target_reached'
+    assert report['staged']==3 and report['visited']==4
+    assert all(lead['url']!=bad for lead in store.list('leads'))
+    with store.db() as db:
+        import json
+        visit=db.execute("SELECT state,evidence FROM research_visits WHERE profile_key='redirected-candidate'").fetchone()
+        assert visit['state']=='insufficient_evidence'
+        assert json.loads(visit['evidence'])['observed_url'].endswith('/other-person/')
+        record=json.loads(db.execute("SELECT record FROM crm_research_profiles WHERE profile_key='redirected-candidate'").fetchone()[0])
+        assert record['status']=='missing_evidence'
+    assert not store.list('deliveries')
+
+
+def test_profile_auth_failure_still_stops_research(tmp_path,monkeypatch):
+    from workbench.errors import ProviderError
+    store,browser,engine,plan=setup(tmp_path)
+    browser.profile=lambda url:(_ for _ in ()).throw(ProviderError('LinkedIn sign-in required'))
+    monkeypatch.setattr(research_web,'discover',lambda *a,**kw:[{'url':PROFILE,'label':'Candidate'}])
+    report=engine.run(plan['id'],True)
+    assert report['visited']==1 and report['staged']==0
+    assert report['reason']=='LinkedIn sign-in required'
+
+
+def test_browser_redirect_never_returns_other_person_evidence():
+    import pytest
+    from workbench.research_browser import ResearchBrowser
+    from workbench.errors import ProfileIdentityError
+    browser=ResearchBrowser(None)
+    browser.snapshot=lambda url:dict(url='https://www.linkedin.com/in/someone-else/',title='Other',links=[])
+    with pytest.raises(ProfileIdentityError):
+        browser.profile(PROFILE)

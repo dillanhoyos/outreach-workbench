@@ -3,6 +3,14 @@ class ProviderError(RuntimeError):
     pass
 
 
+class ProfileIdentityError(ProviderError):
+    """One candidate could not be confirmed; never use the redirected evidence."""
+    def __init__(self, requested_url, observed_url):
+        super().__init__('LinkedIn redirected this profile. Its identity could not be confirmed; skipped and continuing research.')
+        self.requested_url=requested_url
+        self.observed_url=observed_url
+
+
 def check_response(response, provider):
     if response.status_code == 429:
         raise ProviderError(f'{provider} rate limit reached. Stopped without retry; wait for the provider limit to reset.')

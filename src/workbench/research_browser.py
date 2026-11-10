@@ -3,7 +3,7 @@ import re
 from urllib.parse import urlsplit, quote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from .errors import ProviderError
+from .errors import ProviderError, ProfileIdentityError
 from .store import profile_key
 
 
@@ -77,8 +77,12 @@ class ResearchBrowser:
     def profile(self, url):
         safe = research_url(url,'profile')
         page = self.snapshot(safe)
-        if profile_key(page['url']) != profile_key(safe):
-            raise ProviderError('Profile redirected to a different identity. Research stopped.')
+        try:
+            same_identity=profile_key(page['url']) == profile_key(safe)
+        except ValueError:
+            same_identity=False
+        if not same_identity:
+            raise ProfileIdentityError(safe,page['url'])
         page['url'] = safe
         companies = {}
         for link in page['links']:

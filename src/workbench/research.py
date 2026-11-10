@@ -7,7 +7,7 @@ import unicodedata
 import uuid
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .store import profile_key, now
-from .errors import ProviderError
+from .errors import ProviderError, ProfileIdentityError
 from .research_model import reason
 from .research_browser import ResearchBrowser
 
@@ -406,7 +406,20 @@ class Discovery:
                     report['visited']+=1
                     self.event(run_id,'visiting',{'url':url,'label':link['label'],'reason':'Inspecting the next unvisited profile in the search order; qualification is still pending.'})
                     self.remember(url,'reserved',{},run_id,plan['prompt'])
-                    profile=self.browser.profile(url)
+                    try:
+                        profile=self.browser.profile(url)
+                    except ProfileIdentityError as exc:
+                        guard()
+                        evidence={'requested_url':url,'observed_url':exc.observed_url,
+                            'assessment':{'reason':str(exc),'needs_web_evidence':True}}
+                        with self.store.db() as db:
+                            db.execute('UPDATE research_visits SET state=?,evidence=? WHERE profile_key=?',
+                                ('insufficient_evidence',json.dumps(evidence),profile_key(url)))
+                        self.remember(url,'insufficient_evidence',evidence,run_id,plan['prompt'])
+                        report['skipped']+=1
+                        self.event(run_id,'profile_identity_unconfirmed',{'url':url,'reason':str(exc)})
+                        self.store.setting('research_report',report)
+                        continue
                     self.remember(url,'reserved',{'profile':profile},run_id,plan['prompt'])
                     companies=profile['companies']
                     direct=[item for item in companies if fold(item['label']) and fold(item['label']) in fold(profile.get('headline',''))]
